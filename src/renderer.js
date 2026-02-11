@@ -14,41 +14,15 @@ let matchesData = [];
 
 // Queue ID to game mode mapping
 const QUEUE_NAMES = {
-    // Summoner's Rift
+    // Ranked
     420: 'Ranked Solo',
     440: 'Ranked Flex',
+    // Normal
     400: 'Normal Draft',
     430: 'Normal Blind',
     480: 'Swiftplay',
     490: 'Quickplay',
-    700: 'Clash',
-    // ARAM
-    450: 'ARAM',
-    720: 'ARAM (Clash)',
-    2400: 'ARAM Mayhem',
-    // Arena & URF
-    1700: 'Arena',
-    1710: 'Arena',
-    900: 'URF',
-    1010: 'URF',
-    1900: 'URF',
-    // Co-op vs AI
-    830: 'Co-op vs AI',
-    840: 'Co-op vs AI',
-    850: 'Co-op vs AI',
-    870: 'Co-op vs AI',
-    880: 'Co-op vs AI',
-    890: 'Co-op vs AI',
-    // Other / Rotating
-    1020: 'One for All',
-    1300: 'Nexus Blitz',
-    1400: 'Ultimate Spellbook',
-    1810: 'Swarm',
-    1820: 'Swarm',
-    1830: 'Swarm',
-    1840: 'Swarm',
-    2300: 'Brawl',
-    0: 'Custom'
+    700: 'Clash'
 };
 
 // ===== Setup Modal Functions =====
@@ -1568,11 +1542,11 @@ function createExpandedRow(match, index, badges = []) {
             <div class="badges-header">Badges Earned <span class="badges-count">${badges.length}</span></div>
             <div class="badges-grid">
                 ${badges.map(b => {
-                    const desc = b.description.replace(/"/g, '&apos;');
-                    return `<div class="badge-pill" data-badge-tooltip="${desc}">
+        const desc = b.description.replace(/"/g, '&apos;');
+        return `<div class="badge-pill" data-badge-tooltip="${desc}">
                         <span class="badge-name">${b.name}</span>
                     </div>`;
-                }).join('')}
+    }).join('')}
             </div>
         </div>` : '';
 
@@ -1690,22 +1664,33 @@ function startSyncCooldown() {
     syncCooldownInterval = setInterval(updateCooldown, 1000);
 }
 
-function updateProgress(current, total) {
+function updateProgress(current, total, stats) {
     const container = document.getElementById('progressContainer');
     const fill = document.getElementById('progressFill');
     const count = document.getElementById('progressCount');
+    const details = document.getElementById('progressDetails');
 
     container.classList.add('visible');
     const percentage = total > 0 ? (current / total) * 100 : 0;
     fill.style.width = percentage + '%';
     count.textContent = `${current} / ${total}`;
+
+    // Show detailed breakdown if stats are provided
+    if (stats && details) {
+        details.style.display = 'block';
+        document.getElementById('progressNew').textContent = stats.new || 0;
+        document.getElementById('progressFiltered').textContent = stats.queueFiltered || 0;
+        document.getElementById('progressExisting').textContent = stats.alreadyInDB || 0;
+    }
 }
 
 function hideProgress() {
     const container = document.getElementById('progressContainer');
     const fill = document.getElementById('progressFill');
+    const details = document.getElementById('progressDetails');
     container.classList.remove('visible');
     fill.style.width = '0%';
+    if (details) details.style.display = 'none';
 }
 
 window.handleSync = async function () {
@@ -1743,8 +1728,8 @@ window.handleSync = async function () {
         await fetchAndDisplayRankData();
 
         updateStatus('loading', 'Syncing Matches', 'Fetching your recent match history...');
-        const result = await syncMatches(puuid, (current, total) => {
-            updateProgress(current, total);
+        const result = await syncMatches(puuid, (current, total, status, stats) => {
+            updateProgress(current, total, stats);
         });
 
         hideProgress();
@@ -2060,7 +2045,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Randomly pick a background image
     const backgrounds = [
         'bandle city.png', 'bilgewater.png', 'demacia.png', 'freljord.png',
-        'ionia.png', 'ixtal.png', 'league of legends5.png', 'noxus.png',
+        'ionia.png', 'ixtal.png', 'noxus.png',
         'piltover.png', 'shadow isles.png', 'shurima.png', 'targon.png',
         'the void.png', 'zaun.png'
     ];

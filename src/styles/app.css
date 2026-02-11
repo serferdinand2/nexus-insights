@@ -142,6 +142,7 @@ select:focus-visible {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 16px;
+    padding: 4px 0;
 }
 
 .header-spacer {
@@ -1492,12 +1493,18 @@ select:focus-visible {
 }
 
 .match-table td {
-    padding: 8px 3px;
+    padding: 8px 8px;
     color: #ffffff;
     border-bottom: 1px solid rgba(255, 255, 255, 0.03);
     font-size: 15px;
     font-weight: 500;
     vertical-align: middle;
+}
+
+/* Mode and Champion columns need more left padding */
+.match-table td:nth-child(2),
+.match-table td:nth-child(3) {
+    padding-left: 12px;
 }
 
 .match-table td.center {
@@ -1767,6 +1774,25 @@ select:focus-visible {
 
 .team-section.team-loss {
     border-color: rgba(239, 68, 68, 0.4);
+}
+
+.tea.match-table td {
+    padding: 12px 6px;
+    text-align: center;
+    font-size: 12px;
+    color: #e0e0e0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Specific column padding adjustments */
+.match-table td:nth-child(2) {
+    /* Mode column - add left padding */
+    padding-left: 12px;
+}
+
+.match-table td:nth-child(3) {
+    /* Champion column - reduce right padding */
+    padding-right: 2px;
 }
 
 .team-header {

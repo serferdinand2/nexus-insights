@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -62,6 +63,12 @@
                 </div>
                 <div class="progress-bar">
                     <div class="progress-fill animated" id="progressFill"></div>
+                </div>
+                <div class="progress-details" id="progressDetails"
+                    style="display: none; margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.6); text-align: center;">
+                    <span style="color: #4ade80;">✓ <span id="progressNew">0</span> new</span> •
+                    <span style="color: #fb923c;">⊘ <span id="progressFiltered">0</span> filtered</span> •
+                    <span style="color: #60a5fa;">↷ <span id="progressExisting">0</span> existing</span>
                 </div>
             </div>
 
@@ -178,7 +185,8 @@
                         <div class="stat-trend-indicator" id="avgIsolatedDeathsTrend"></div>
                         <div class="unified-stat-value" id="avgIsolatedDeaths">--</div>
                         <div class="unified-stat-rank insight-label" id="avgIsolatedDeathsInsight"></div>
-                        <div class="unified-stat-label insight-stat-label" id="avgIsolatedDeathsLabel">Isolated Deaths</div>
+                        <div class="unified-stat-label insight-stat-label" id="avgIsolatedDeathsLabel">Isolated Deaths
+                        </div>
                     </div>
                     <div class="unified-stat-card has-trend">
                         <div class="stat-trend-indicator" id="avgObjectiveRateTrend"></div>
@@ -192,7 +200,8 @@
             <!-- Match History -->
             <div class="match-history" id="matchHistory" style="display: none;">
                 <div class="section-header">
-                    <h3 class="section-title">Match History <span class="match-count-badge" id="matchCountBadge">0 matches</span></h3>
+                    <h3 class="section-title">Match History <span class="match-count-badge" id="matchCountBadge">0
+                            matches</span></h3>
                 </div>
 
                 <!-- Filter Section -->
@@ -218,32 +227,9 @@
                                 onchange="applyFilters()">
                             <span>Normal</span>
                         </label>
-                        <label class="filter-checkbox">
-                            <input type="checkbox" class="queue-filter" data-queue="450,720,2400" checked
-                                onchange="applyFilters()">
-                            <span>ARAM</span>
-                        </label>
-                        <label class="filter-checkbox">
-                            <input type="checkbox" class="queue-filter" data-queue="1700,1710" checked
-                                onchange="applyFilters()">
-                            <span>Arena</span>
-                        </label>
-                        <label class="filter-checkbox">
-                            <input type="checkbox" class="queue-filter" data-queue="900,1010,1900" checked
-                                onchange="applyFilters()">
-                            <span>URF</span>
-                        </label>
-                        <label class="filter-checkbox">
-                            <input type="checkbox" class="queue-filter" data-queue="830,840,850,870,880,890" checked
-                                onchange="applyFilters()">
-                            <span>Co-op vs AI</span>
-                        </label>
-                        <label class="filter-checkbox">
-                            <input type="checkbox" class="queue-filter" data-queue="1020,1300,1400,1810,1820,1830,1840,2300,0" checked
-                                onchange="applyFilters()">
-                            <span>Other</span>
-                        </label>
-                        <button class="filter-clear-btn" onclick="clearGameModeFilters()" title="Clear all game modes">Clear</button>
+
+                        <button class="filter-clear-btn" onclick="clearGameModeFilters()"
+                            title="Clear all game modes">Clear</button>
                     </div>
                     <div class="champ-filter-wrapper">
                         <select id="champFilter" onchange="applyFilters()">
@@ -279,8 +265,11 @@
             <div class="setup-body">
                 <div class="setup-field">
                     <label class="setup-label" for="setupApiKey">Riot API Key</label>
-                    <input type="password" id="setupApiKey" class="setup-input" placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                    <p class="setup-hint">Get your API key from <a href="#" onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">developer.riotgames.com</a></p>
+                    <input type="password" id="setupApiKey" class="setup-input"
+                        placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
+                    <p class="setup-hint">Get your API key from <a href="#"
+                            onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">developer.riotgames.com</a>
+                    </p>
                 </div>
                 <div class="setup-row">
                     <div class="setup-field">
@@ -348,7 +337,8 @@
         <div class="tooltip-description"></div>
     </div>
 
-    
+
     <script src="renderer.js"></script>
 </body>
+
 </html>

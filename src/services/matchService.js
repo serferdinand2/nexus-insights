@@ -1,16 +1,16 @@
 const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
+const { compressJson, decompressJson } = require('./compression');
 
-// Rate limit delay (ms) - Riot API allows 20 req/s, but we'll be conservative
-const REQUEST_DELAY_MS = 150; // ~6-7 requests per second to stay safe
+// Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
+const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
 
-// January 1, 2026 at 00:00 AM UTC (start of the year - catch all matches)
-// Epoch timestamp in seconds
+// Rate limiting (Riot allows 20 requests/second, 100 requests/2 minutes)
+const REQUEST_DELAY_MS = 150; // 150ms between requests = ~6.67 req/s (safe margin)
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Season start timestamp (Jan 1, 2026 00:00:00 UTC)
 const RANKED_SEASON_START = Math.floor(new Date('2026-01-01T00:00:00Z').getTime() / 1000);
-
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 // Promisify database methods
 function dbGet(sql, params) {
@@ -59,6 +59,11 @@ async function getMatches(limit = null) {
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
     const matches = await dbAll(sql, limit ? [limit] : []);
+    // Decompress JSON blobs
+    for (const match of matches) {
+        if (match.rawJson) match.rawJson = decompressJson(match.rawJson);
+        if (match.timelineJson) match.timelineJson = decompressJson(match.timelineJson);
+    }
     return matches;
 }
 
@@ -68,6 +73,10 @@ async function getMatchById(matchId) {
         `SELECT * FROM matches WHERE matchId = ?`,
         [matchId]
     );
+    if (match) {
+        if (match.rawJson) match.rawJson = decompressJson(match.rawJson);
+        if (match.timelineJson) match.timelineJson = decompressJson(match.timelineJson);
+    }
     return match;
 }
 
@@ -97,246 +106,153 @@ async function getStats() {
 async function syncMatches(puuid, onProgress) {
     console.log('Fetching match IDs for PUUID:', puuid);
 
-    // Get the most recent and oldest match timestamps from database
+    // Batch-load existing match IDs for fast lookup
+    const existingRows = await dbAll("SELECT matchId FROM matches");
+    const existingIds = new Set(existingRows.map(r => r.matchId));
+    console.log(`Existing matches in DB: ${existingIds.size}`);
+
+    // Get the most recent match timestamp
     const latestMatch = await dbGet("SELECT MAX(gameCreation) as latestTime FROM matches");
-    const oldestMatch = await dbGet("SELECT MIN(gameCreation) as oldestTime FROM matches");
 
     let allMatchIds = [];
 
     if (latestMatch && latestMatch.latestTime) {
-        // FORWARD SYNC: fetch matches AFTER the most recent one
+        // FORWARD-ONLY SYNC: fetch matches AFTER the most recent one
         const forwardStartTime = Math.floor(latestMatch.latestTime / 1000) + 1;
         console.log(`Forward sync: fetching matches after ${new Date(latestMatch.latestTime).toISOString()}`);
-        const forwardMatches = await getMatchIds(puuid, forwardStartTime);
-        console.log(`Found ${forwardMatches.length} new matches (forward)`);
-        allMatchIds.push(...forwardMatches);
-
-        // BACKWARD SYNC: fetch matches BEFORE the oldest one (but after season start)
-        if (oldestMatch && oldestMatch.oldestTime) {
-            const oldestTimeSeconds = Math.floor(oldestMatch.oldestTime / 1000);
-
-            // Only do backward sync if there's a gap between season start and oldest match
-            if (oldestTimeSeconds > RANKED_SEASON_START + 86400) { // More than 1 day gap
-                console.log(`Backward sync: fetching matches between season start and ${new Date(oldestMatch.oldestTime).toISOString()}`);
-
-                // Fetch matches from season start, then filter out ones we already have
-                const backwardMatches = await getMatchIds(puuid, RANKED_SEASON_START);
-
-                // Filter to only include matches before our oldest (to avoid duplicates)
-                const existingIds = new Set((await dbAll("SELECT matchId FROM matches")).map(m => m.matchId));
-                const missingMatches = backwardMatches.filter(id => !existingIds.has(id));
-
-                console.log(`Found ${missingMatches.length} missing older matches (backward)`);
-                allMatchIds.push(...missingMatches);
-            }
-        }
+        console.log(`DEBUG: Latest match timestamp (ms): ${latestMatch.latestTime}`);
+        console.log(`DEBUG: Forward start time (seconds): ${forwardStartTime}`);
+        console.log(`DEBUG: Forward start time (ISO): ${new Date(forwardStartTime * 1000).toISOString()}`);
+        allMatchIds = await getMatchIds(puuid, forwardStartTime);
+        console.log(`Found ${allMatchIds.length} match IDs from API`);
+        console.log(`DEBUG: First 5 match IDs:`, allMatchIds.slice(0, 5));
     } else {
         // First sync: fetch all matches since season start
         console.log('First sync: fetching ALL matches since Jan 1, 2026...');
         allMatchIds = await getMatchIds(puuid, RANKED_SEASON_START);
     }
 
-    // Fetch special queues that require explicit queue parameter (Riot API doesn't return them by default)
-    const SPECIAL_QUEUES = [2400, 1700, 1710];
-    const specialMatchIds = [];
-
-    // Always fetch from RANKED_SEASON_START for special queues to catch any missed matches,
-    // since backward sync (without queue filter) cannot find these queue types
-    for (const queueId of SPECIAL_QUEUES) {
-        const MAX_RETRIES = 2;
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                console.log(`Fetching special queue ${queueId} matches (attempt ${attempt + 1})...`);
-                const specialMatches = await getMatchIds(puuid, RANKED_SEASON_START, queueId);
-                console.log(`Found ${specialMatches.length} matches for queue ${queueId}`);
-                specialMatchIds.push(...specialMatches);
-                await sleep(150);
-                break; // Success, stop retrying
-            } catch (err) {
-                console.warn(`Attempt ${attempt + 1} failed for queue ${queueId}: ${err.message}`);
-                if (attempt < MAX_RETRIES) {
-                    // Wait longer before retrying (exponential backoff)
-                    await sleep(1000 * (attempt + 1));
-                } else {
-                    console.error(`All retries failed for special queue ${queueId}. These matches may be missing.`);
-                    if (onProgress) onProgress(0, 0, 'warn', `Failed to fetch queue ${queueId} matches - will retry next sync`);
-                }
-            }
-        }
-    }
-
-    // Prepend special queue matches so they are processed FIRST (before rate limiting can drop them)
-    allMatchIds.unshift(...specialMatchIds);
-
-    // Deduplicate match IDs
-    const matchIds = [...new Set(allMatchIds)];
-    console.log(`Total unique matches to process: ${matchIds.length}`);
+    // Deduplicate and filter out matches already in DB
+    const matchIds = [...new Set(allMatchIds)].filter(id => !existingIds.has(id));
+    const skipped = allMatchIds.length - matchIds.length;
+    console.log(`${matchIds.length} new matches to process (${skipped} already in DB)`);
 
     // If no new matches, return early
     if (matchIds.length === 0) {
         console.log('No new matches to sync');
         if (onProgress) onProgress(0, 0, 'complete');
-        return { newMatches: 0, skipped: 0, total: 0 };
+        return { newMatches: 0, skipped, total: allMatchIds.length };
     }
 
     let newMatches = 0;
-    let skipped = 0;
+    let queueSkipped = 0;
     let processed = 0;
     const newMatchIds = [];
     const total = matchIds.length;
-    const BATCH_SIZE = 2; // Process 2 matches concurrently to stay under rate limits
+    const BATCH_SIZE = 2;
 
     // Report initial progress
     if (onProgress) onProgress(0, total);
 
-    // Process in batches for much faster performance
+    // Process in batches
     for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
         const batch = matchIds.slice(i, i + BATCH_SIZE);
 
-        const results = await Promise.allSettled(
+        await Promise.allSettled(
             batch.map(async (id) => {
                 try {
-                    // Check if we already have it (shouldn't happen with incremental sync, but safety check)
-                    const row = await dbGet("SELECT matchId, gameDuration, totalMinionsKilled, teamDragons, teamBarons, teamRiftHeralds, primaryRune, teamKills, timelineJson FROM matches WHERE matchId = ?", [id]);
+                    const data = await getMatchData(id);
+                    const info = data.info;
 
-                    // If match doesn't exist OR is missing critical data, fetch/update it
-                    const needsFetch = !row || row.gameDuration === null || row.totalMinionsKilled === null || row.teamDragons === null || row.teamBarons === null || row.teamRiftHeralds === null || row.primaryRune === null || row.teamKills === null || row.timelineJson === null;
+                    // Skip matches from unwanted queue types
+                    if (!ALLOWED_QUEUES.has(info.queueId)) {
+                        console.log(`Skipping match ${id} (queue ${info.queueId} not in allowed list)`);
+                        queueSkipped++;
+                        return { type: 'queue-skipped', id };
+                    }
 
-                    if (needsFetch) {
-                        if (!row) {
-                            console.log(`Fetching new match: ${id}`);
-                        } else {
-                            console.log(`Updating incomplete match: ${id}`);
-                        }
+                    // Fetch timeline data for badge evaluation
+                    let timelineData = null;
+                    try {
+                        await sleep(REQUEST_DELAY_MS);
+                        timelineData = await getMatchTimeline(id);
+                    } catch (tlErr) {
+                        console.warn(`Could not fetch timeline for ${id}: ${tlErr.message}`);
+                    }
 
-                        const data = await getMatchData(id);
-                        // Fetch timeline data for badge evaluation
-                        let timelineData = null;
-                        try {
-                            await sleep(REQUEST_DELAY_MS); // Respect rate limits between calls
-                            timelineData = await getMatchTimeline(id);
-                        } catch (tlErr) {
-                            console.warn(`Could not fetch timeline for ${id}: ${tlErr.message}`);
-                        }
-                        const info = data.info;
+                    // Find yourself in the participants list
+                    const me = info.participants.find(p => p.puuid === puuid);
 
-                        // Find yourself in the participants list
-                        const me = info.participants.find(p => p.puuid === puuid);
+                    if (me) {
+                        // Extract team objectives
+                        const myTeam = info.teams.find(t => t.teamId === me.teamId);
+                        const enemyTeam = info.teams.find(t => t.teamId !== me.teamId);
 
-                        if (me) {
-                            // Extract team objectives
-                            const myTeam = info.teams.find(t => t.teamId === me.teamId);
-                            const enemyTeam = info.teams.find(t => t.teamId !== me.teamId);
+                        const teamKills = info.participants
+                            .filter(p => p.teamId === me.teamId)
+                            .reduce((sum, p) => sum + p.kills, 0);
 
-                            // Calculate team kills if not directly available (though usually in objectives, we can also sum participants)
-                            // But usually we can just count kills from all participants in that team
-                            const teamKills = info.participants
-                                .filter(p => p.teamId === me.teamId)
-                                .reduce((sum, p) => sum + p.kills, 0);
+                        const myObjectives = myTeam?.objectives || {};
+                        const enemyObjectives = enemyTeam?.objectives || {};
 
-                            const myObjectives = myTeam?.objectives || {};
-                            const enemyObjectives = enemyTeam?.objectives || {};
+                        const teamDragons = myObjectives.dragon?.kills || 0;
+                        const enemyDragons = enemyObjectives.dragon?.kills || 0;
+                        const teamBarons = myObjectives.baron?.kills || 0;
+                        const enemyBarons = enemyObjectives.baron?.kills || 0;
+                        const teamRiftHeralds = myObjectives.riftHerald?.kills || 0;
+                        const enemyRiftHeralds = enemyObjectives.riftHerald?.kills || 0;
+                        const teamTowers = myObjectives.tower?.kills || 0;
+                        const enemyTowers = enemyObjectives.tower?.kills || 0;
+                        const teamInhibitors = myObjectives.inhibitor?.kills || 0;
+                        const enemyInhibitors = enemyObjectives.inhibitor?.kills || 0;
 
-                            const teamDragons = myObjectives.dragon?.kills || 0;
-                            const enemyDragons = enemyObjectives.dragon?.kills || 0;
-                            const teamBarons = myObjectives.baron?.kills || 0;
-                            const enemyBarons = enemyObjectives.baron?.kills || 0;
-                            const teamRiftHeralds = myObjectives.riftHerald?.kills || 0;
-                            const enemyRiftHeralds = enemyObjectives.riftHerald?.kills || 0;
-                            const teamTowers = myObjectives.tower?.kills || 0;
-                            const enemyTowers = enemyObjectives.tower?.kills || 0;
-                            const teamInhibitors = myObjectives.inhibitor?.kills || 0;
-                            const enemyInhibitors = enemyObjectives.inhibitor?.kills || 0;
+                        // Extract rune data
+                        const primaryRune = me.perks?.styles?.[0]?.selections?.[0]?.perk || null;
+                        const secondaryRuneStyle = me.perks?.styles?.[1]?.style || null;
 
-                            // Extract rune data
-                            const primaryRune = me.perks?.styles?.[0]?.selections?.[0]?.perk || null;
-                            const secondaryRuneStyle = me.perks?.styles?.[1]?.style || null;
+                        // Compute advanced stats
+                        const advStats = computeAdvancedStatsForMatch(data, timelineData, me.championName, me.teamId);
 
-                            // Compute advanced stats
-                            const advStats = computeAdvancedStatsForMatch(data, timelineData, me.championName, me.teamId);
+                        await dbRun(
+                            `INSERT OR IGNORE INTO matches (
+                                matchId, queueId, gameCreation, gameDuration, championName, champLevel,
+                                win, kills, deaths, assists, goldEarned, totalMinionsKilled,
+                                totalDamageDealtToChampions, visionScore,
+                                doubleKills, tripleKills, quadraKills, pentaKills,
+                                turretKills, inhibitorKills, dragonKills, baronKills, objectivesStolen,
+                                wardsPlaced, wardsKilled, detectorWardsPlaced,
+                                teamPosition, lane,
+                                item0, item1, item2, item3, item4, item5, item6,
+                                teamDragons, enemyDragons, teamBarons, enemyBarons,
+                                teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
+                                teamInhibitors, enemyInhibitors, teamId, teamKills,
+                                primaryRune, secondaryRuneStyle,
+                                rawJson, timelineJson,
+                                csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                            [
+                                id, info.queueId, info.gameCreation, info.gameDuration, me.championName, me.champLevel,
+                                me.win ? 1 : 0, me.kills, me.deaths, me.assists, me.goldEarned, (me.totalMinionsKilled || 0) + (me.neutralMinionsKilled || 0),
+                                me.totalDamageDealtToChampions, me.visionScore,
+                                me.doubleKills, me.tripleKills, me.quadraKills, me.pentaKills,
+                                me.turretKills, me.inhibitorKills, me.dragonKills, me.baronKills, me.objectivesStolen,
+                                me.wardsPlaced, me.wardsKilled, me.detectorWardsPlaced,
+                                me.teamPosition, me.lane,
+                                me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6,
+                                teamDragons, enemyDragons, teamBarons, enemyBarons,
+                                teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
+                                teamInhibitors, enemyInhibitors, me.teamId, teamKills,
+                                primaryRune, secondaryRuneStyle,
+                                compressJson(data), timelineData ? compressJson(timelineData) : null,
+                                advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate
+                            ]
+                        );
+                        newMatches++;
+                        newMatchIds.push(id);
+                        console.log(`Saved match ${id}: ${me.championName} (${me.teamPosition || me.lane}) - ${me.kills}/${me.deaths}/${me.assists}`);
+                        return { type: 'new', id };
 
-                            if (!row) {
-                                // Insert new match
-                                await dbRun(
-                                    `INSERT INTO matches (
-                                        matchId, queueId, gameCreation, gameDuration, championName, champLevel,
-                                        win, kills, deaths, assists, goldEarned, totalMinionsKilled,
-                                        totalDamageDealtToChampions, visionScore,
-                                        doubleKills, tripleKills, quadraKills, pentaKills,
-                                        turretKills, inhibitorKills, dragonKills, baronKills, objectivesStolen,
-                                        wardsPlaced, wardsKilled, detectorWardsPlaced,
-                                        teamPosition, lane,
-                                        item0, item1, item2, item3, item4, item5, item6,
-                                        teamDragons, enemyDragons, teamBarons, enemyBarons,
-                                        teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
-                                        teamInhibitors, enemyInhibitors, teamId, teamKills,
-                                        primaryRune, secondaryRuneStyle,
-                                        rawJson, timelineJson,
-                                        csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
-                                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                                    [
-                                        id, info.queueId, info.gameCreation, info.gameDuration, me.championName, me.champLevel,
-                                        me.win ? 1 : 0, me.kills, me.deaths, me.assists, me.goldEarned, (me.totalMinionsKilled || 0) + (me.neutralMinionsKilled || 0),
-                                        me.totalDamageDealtToChampions, me.visionScore,
-                                        me.doubleKills, me.tripleKills, me.quadraKills, me.pentaKills,
-                                        me.turretKills, me.inhibitorKills, me.dragonKills, me.baronKills, me.objectivesStolen,
-                                        me.wardsPlaced, me.wardsKilled, me.detectorWardsPlaced,
-                                        me.teamPosition, me.lane,
-                                        me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6,
-                                        teamDragons, enemyDragons, teamBarons, enemyBarons,
-                                        teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
-                                        teamInhibitors, enemyInhibitors, me.teamId, teamKills,
-                                        primaryRune, secondaryRuneStyle,
-                                        JSON.stringify(data), timelineData ? JSON.stringify(timelineData) : null,
-                                        advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate
-                                    ]
-                                );
-                                newMatches++;
-                                newMatchIds.push(id);
-                                console.log(`Saved match ${id}: ${me.championName} (${me.teamPosition || me.lane}) - ${me.kills}/${me.deaths}/${me.assists}`);
-                            } else {
-                                // Update existing match with complete data
-                                await dbRun(
-                                    `UPDATE matches SET
-                                        gameDuration = ?, champLevel = ?, totalMinionsKilled = ?,
-                                        totalDamageDealtToChampions = ?, visionScore = ?,
-                                        doubleKills = ?, tripleKills = ?, quadraKills = ?, pentaKills = ?,
-                                        turretKills = ?, inhibitorKills = ?, dragonKills = ?, baronKills = ?, objectivesStolen = ?,
-                                        wardsPlaced = ?, wardsKilled = ?, detectorWardsPlaced = ?,
-                                        teamPosition = ?, lane = ?,
-                                        item0 = ?, item1 = ?, item2 = ?, item3 = ?, item4 = ?, item5 = ?, item6 = ?,
-                                        teamDragons = ?, enemyDragons = ?, teamBarons = ?, enemyBarons = ?,
-                                        teamRiftHeralds = ?, enemyRiftHeralds = ?, teamTowers = ?, enemyTowers = ?,
-                                        teamInhibitors = ?, enemyInhibitors = ?, teamId = ?, teamKills = ?,
-                                        primaryRune = ?, secondaryRuneStyle = ?, rawJson = ?,
-                                        timelineJson = ?,
-                                        csDiff15 = ?, goldDiff15 = ?, xpDiff15 = ?, firstBlood = ?, dmgGoldRatio = ?, isolatedDeaths = ?, objectiveRate = ?
-                                    WHERE matchId = ?`,
-                                    [
-                                        info.gameDuration, me.champLevel, (me.totalMinionsKilled || 0) + (me.neutralMinionsKilled || 0),
-                                        me.totalDamageDealtToChampions, me.visionScore,
-                                        me.doubleKills, me.tripleKills, me.quadraKills, me.pentaKills,
-                                        me.turretKills, me.inhibitorKills, me.dragonKills, me.baronKills, me.objectivesStolen,
-                                        me.wardsPlaced, me.wardsKilled, me.detectorWardsPlaced,
-                                        me.teamPosition, me.lane,
-                                        me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6,
-                                        teamDragons, enemyDragons, teamBarons, enemyBarons,
-                                        teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
-                                        teamInhibitors, enemyInhibitors, me.teamId, teamKills,
-                                        primaryRune, secondaryRuneStyle, JSON.stringify(data),
-                                        timelineData ? JSON.stringify(timelineData) : null,
-                                        advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate,
-                                        id
-                                    ]
-                                );
-                                console.log(`Updated match ${id} with complete data (including gameDuration)`);
-                            }
-                            return { type: row ? 'updated' : 'new', id };
-                        }
-                    } else {
-                        console.log(`Match ${id} already exists with complete data. Skipping.`);
-                        skipped++;
-                        return { type: 'skipped', id };
+
                     }
                 } catch (error) {
                     console.error(`Error processing match ${id}:`, error.message);
@@ -347,17 +263,29 @@ async function syncMatches(puuid, onProgress) {
 
         // Update progress after batch completes
         processed += batch.length;
-        if (onProgress) onProgress(processed, total);
+        if (onProgress) {
+            onProgress(processed, total, 'progress', {
+                new: newMatches,
+                queueFiltered: queueSkipped,
+                alreadyInDB: skipped
+            });
+        }
 
-        // Small delay between batches to avoid hitting rate limits
-        // BATCH_SIZE requests with minimal gap between batches keeps us under 20 req/s
+        // Small delay between batches
         if (i + BATCH_SIZE < matchIds.length) {
             await sleep(100);
         }
     }
 
-    console.log(`Sync complete: ${newMatches} new, ${skipped} skipped`);
-    return { newMatches, skipped, total: matchIds.length, newMatchIds };
+    console.log(`Sync complete: ${newMatches} new, ${skipped} already in DB, ${queueSkipped} queue-filtered`);
+    if (onProgress) {
+        onProgress(total, total, 'complete', {
+            new: newMatches,
+            queueFiltered: queueSkipped,
+            alreadyInDB: skipped
+        });
+    }
+    return { newMatches, skipped: skipped + queueSkipped, total: matchIds.length, newMatchIds };
 }
 
 // Compute advanced stats given the participant index and parsed data
@@ -559,7 +487,7 @@ async function backfillTimelines(onProgress) {
         const matchId = rows[i].matchId;
         try {
             const timelineData = await getMatchTimeline(matchId);
-            await dbRun("UPDATE matches SET timelineJson = ? WHERE matchId = ?", [JSON.stringify(timelineData), matchId]);
+            await dbRun("UPDATE matches SET timelineJson = ? WHERE matchId = ?", [compressJson(timelineData), matchId]);
             updated++;
             console.log(`[${i + 1}/${rows.length}] Timeline saved for ${matchId}`);
         } catch (err) {
@@ -595,7 +523,9 @@ async function backfillAdvancedStats(onProgress) {
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         try {
-            const stats = computeAdvancedStatsForMatch(row.rawJson, row.timelineJson, row.championName, row.teamId);
+            const rawData = decompressJson(row.rawJson);
+            const tlData = decompressJson(row.timelineJson);
+            const stats = computeAdvancedStatsForMatch(rawData, tlData, row.championName, row.teamId);
             await dbRun(
                 `UPDATE matches SET csDiff15 = ?, goldDiff15 = ?, xpDiff15 = ?, firstBlood = ?, dmgGoldRatio = ?, isolatedDeaths = ?, objectiveRate = ? WHERE matchId = ?`,
                 [stats.csDiff15, stats.goldDiff15, stats.xpDiff15, stats.firstBlood, stats.dmgGoldRatio, stats.isolatedDeaths, stats.objectiveRate, row.matchId]
@@ -663,7 +593,7 @@ async function getMatchParticipantRanks(matchId) {
     const match = await dbGet("SELECT rawJson FROM matches WHERE matchId = ?", [matchId]);
     if (!match || !match.rawJson) return {};
 
-    const data = JSON.parse(match.rawJson);
+    const data = decompressJson(match.rawJson);
     const participants = data.info.participants;
     const rankMap = {};
 
@@ -687,7 +617,7 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
         const match = await dbGet("SELECT rawJson FROM matches WHERE matchId = ?", [matchId]);
         if (match && match.rawJson) {
             try {
-                const data = JSON.parse(match.rawJson);
+                const data = decompressJson(match.rawJson);
                 for (const p of data.info.participants) {
                     if (p.puuid && p.puuid.length >= 40) allPuuids.add(p.puuid);
                 }
