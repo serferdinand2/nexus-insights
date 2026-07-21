@@ -1,0 +1,26 @@
+# Normalise line endings so CRLF/LF churn never shows up as a diff again.
+# Without this, a file rewritten by a different editor appears as every line
+# changed, which buries real changes.
+
+# Default: normalise text files to LF in the repository.
+# Git still checks them out as CRLF on Windows.
+* text=auto
+
+# Explicit for the file types in this project
+*.js    text eol=lf
+*.json  text eol=lf
+*.html  text eol=lf
+*.css   text eol=lf
+*.md    text eol=lf
+*.csv   text eol=lf
+*.yml   text eol=lf
+
+# Binary — never touch these
+*.png   binary
+*.jpg   binary
+*.ico   binary
+*.sqlite binary
+*.asar  binary
+*.node  binary
+*.gz    binary
+*.tar.gz binary
