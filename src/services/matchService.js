@@ -5,12 +5,14 @@ const { compressJson, decompressJson } = require('./compression');
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
 const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
 
-// Rate limiting (Riot allows 20 requests/second, 100 requests/2 minutes)
-const REQUEST_DELAY_MS = 150; // 150ms between requests = ~6.67 req/s (safe margin)
+// Rate limiting is handled centrally by the limiter inside riotApi.js, which
+// enforces BOTH of Riot's windows (20/sec and 100/2min) and retries on 429.
+// Callers no longer sleep manually — doing so on top of the limiter would only
+// slow syncs down without making them any safer.
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Season start timestamp (Jan 1, 2026 00:00:00 UTC)
-const RANKED_SEASON_START = Math.floor(new Date('2026-01-01T00:00:00Z').getTime() / 1000);
+// Season start timestamp (Jan 1, 2026 00:00:00 UTC) — milliseconds for Riot API
+const RANKED_SEASON_START = new Date('2026-01-01T00:00:00Z').getTime();
 
 // Promisify database methods
 function dbGet(sql, params) {
@@ -40,7 +42,81 @@ function dbAll(sql, params = []) {
     });
 }
 
-// Load all matches from database, newest first
+// ---------------------------------------------------------------------------
+// LAZY JSON BLOB LOADING
+// ---------------------------------------------------------------------------
+// rawJson + timelineJson are enormous (>100MB across the table). Loading and
+// JSON.parse-ing them for every row on startup froze the renderer for seconds
+// and pinned hundreds of MB of heap. They are deliberately NOT selected by
+// getMatches(); callers pull only the blobs they actually need through the
+// helpers below, and results are memoised per matchId.
+
+const rawJsonCache      = new Map(); // matchId -> parsed rawJson (or null)
+const timelineJsonCache = new Map(); // matchId -> parsed timelineJson (or null)
+
+// SQLite caps bound parameters at 999 per statement
+const SQL_VAR_LIMIT = 900;
+
+function chunk(arr, size) {
+    const out = [];
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+    return out;
+}
+
+// Generic blob loader — fetches only the ids missing from `cache`
+async function loadJsonColumn(column, cache, matchIds) {
+    const missing = [...new Set(matchIds)].filter(id => id && !cache.has(id));
+    if (missing.length === 0) return cache;
+
+    for (const ids of chunk(missing, SQL_VAR_LIMIT)) {
+        const placeholders = ids.map(() => '?').join(',');
+        const rows = await dbAll(
+            `SELECT matchId, ${column} FROM matches WHERE matchId IN (${placeholders})`,
+            ids
+        );
+        for (const row of rows) {
+            let parsed = null;
+            try {
+                parsed = row[column] ? decompressJson(row[column]) : null;
+            } catch (e) {
+                console.warn(`Failed to decode ${column} for ${row.matchId}:`, e.message);
+            }
+            cache.set(row.matchId, parsed);
+        }
+        // Any id with no row at all — cache the miss so we don't re-query it
+        for (const id of ids) if (!cache.has(id)) cache.set(id, null);
+    }
+    return cache;
+}
+
+/** Ensure rawJson is loaded + parsed for the given match ids. */
+async function loadRawJson(matchIds) {
+    await loadJsonColumn('rawJson', rawJsonCache, matchIds);
+}
+
+/** Ensure timelineJson is loaded + parsed for the given match ids. */
+async function loadTimelineJson(matchIds) {
+    await loadJsonColumn('timelineJson', timelineJsonCache, matchIds);
+}
+
+/** Synchronous read — returns null if the blob has not been prefetched yet. */
+function getCachedRawJson(matchId) {
+    return rawJsonCache.has(matchId) ? rawJsonCache.get(matchId) : null;
+}
+
+function getCachedTimelineJson(matchId) {
+    return timelineJsonCache.has(matchId) ? timelineJsonCache.get(matchId) : null;
+}
+
+/** Drop everything (call after a sync so refreshed rows are re-read). */
+function clearJsonCache() {
+    rawJsonCache.clear();
+    timelineJsonCache.clear();
+}
+
+// Load all matches from database, newest first.
+// NOTE: rawJson / timelineJson are intentionally excluded — use loadRawJson /
+// loadTimelineJson + the getCached* accessors instead.
 async function getMatches(limit = null) {
     const sql = `SELECT matchId, queueId, gameCreation, gameDuration, championName, champLevel,
                 win, kills, deaths, assists, goldEarned, totalMinionsKilled,
@@ -53,18 +129,12 @@ async function getMatches(limit = null) {
                 teamDragons, enemyDragons, teamBarons, enemyBarons,
                 teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
                 teamInhibitors, enemyInhibitors, teamId, teamKills,
-                primaryRune, secondaryRuneStyle, rawJson, timelineJson,
+                primaryRune, secondaryRuneStyle,
                 csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
-    const matches = await dbAll(sql, limit ? [limit] : []);
-    // Decompress JSON blobs
-    for (const match of matches) {
-        if (match.rawJson) match.rawJson = decompressJson(match.rawJson);
-        if (match.timelineJson) match.timelineJson = decompressJson(match.timelineJson);
-    }
-    return matches;
+    return dbAll(sql, limit ? [limit] : []);
 }
 
 // Get full match details by ID (including rawJson for team composition)
@@ -78,6 +148,59 @@ async function getMatchById(matchId) {
         if (match.timelineJson) match.timelineJson = decompressJson(match.timelineJson);
     }
     return match;
+}
+
+/**
+ * Data backing the Coaching tab.
+ *
+ * This used to live in coachingPanel.js, which opened its OWN sqlite3
+ * connection from the renderer and gunzipped 40 timelines (~24MB) on every
+ * visit to the tab. Both the connection and the decompression now happen in
+ * the main process, and only the derived numbers cross the IPC boundary.
+ */
+async function getCoachingData(seasonStart, timelineSample = 40) {
+    const rows = await dbAll(`
+        SELECT matchId, win, championName, kills, deaths, assists,
+               gameDuration, gameCreation,
+               totalDamageDealtToChampions, goldEarned,
+               totalMinionsKilled, visionScore,
+               detectorWardsPlaced, wardsPlaced, wardsKilled,
+               isolatedDeaths, goldDiff15, csDiff15,
+               teamDragons, enemyDragons, teamBarons, teamKills, firstBlood,
+               doubleKills, tripleKills, turretKills, objectivesStolen,
+               dmgGoldRatio
+        FROM matches
+        WHERE queueId = 420 AND gameCreation >= ?
+        ORDER BY gameCreation ASC
+    `, [seasonStart]);
+
+    if (!rows || rows.length === 0) return { rows: [], firstDrakeTimes: [] };
+
+    const timelineRows = await dbAll(`
+        SELECT timelineJson FROM matches
+        WHERE queueId = 420 AND gameCreation >= ? AND timelineJson IS NOT NULL
+        ORDER BY gameCreation DESC LIMIT ?
+    `, [seasonStart, timelineSample]);
+
+    // Reduce each timeline to a single number here so the renderer never has
+    // to see (or hold in memory) the timeline payloads themselves.
+    const firstDrakeTimes = [];
+    for (const tr of timelineRows) {
+        let tl = null;
+        try { tl = decompressJson(tr.timelineJson); } catch { /* skip bad row */ }
+        if (!tl) continue;
+        let earliest = Infinity;
+        for (const frame of (tl.info?.frames ?? [])) {
+            for (const e of (frame.events || [])) {
+                if (e.type === 'ELITE_MONSTER_KILL' && e.monsterType === 'DRAGON' && e.timestamp < earliest) {
+                    earliest = e.timestamp;
+                }
+            }
+        }
+        if (Number.isFinite(earliest)) firstDrakeTimes.push(earliest / 60000);
+    }
+
+    return { rows, firstDrakeTimes };
 }
 
 // Get summary stats
@@ -116,21 +239,32 @@ async function syncMatches(puuid, onProgress) {
 
     let allMatchIds = [];
 
+    // Determine startTime for the API
+    let startTime;
     if (latestMatch && latestMatch.latestTime) {
         // FORWARD-ONLY SYNC: fetch matches AFTER the most recent one
-        const forwardStartTime = Math.floor(latestMatch.latestTime / 1000) + 1;
+        // Both gameCreation and Riot API startTime use milliseconds (13 digits)
+        startTime = latestMatch.latestTime + 1;
         console.log(`Forward sync: fetching matches after ${new Date(latestMatch.latestTime).toISOString()}`);
-        console.log(`DEBUG: Latest match timestamp (ms): ${latestMatch.latestTime}`);
-        console.log(`DEBUG: Forward start time (seconds): ${forwardStartTime}`);
-        console.log(`DEBUG: Forward start time (ISO): ${new Date(forwardStartTime * 1000).toISOString()}`);
-        allMatchIds = await getMatchIds(puuid, forwardStartTime);
-        console.log(`Found ${allMatchIds.length} match IDs from API`);
-        console.log(`DEBUG: First 5 match IDs:`, allMatchIds.slice(0, 5));
+        console.log(`DEBUG: Latest match gameCreation (ms): ${latestMatch.latestTime}`);
+        console.log(`DEBUG: Forward start time (ms): ${startTime}`);
+        console.log(`DEBUG: Forward start time (ISO): ${new Date(startTime).toISOString()}`);
     } else {
         // First sync: fetch all matches since season start
+        startTime = RANKED_SEASON_START;
         console.log('First sync: fetching ALL matches since Jan 1, 2026...');
-        allMatchIds = await getMatchIds(puuid, RANKED_SEASON_START);
     }
+
+    // Fetch match IDs per allowed queue type to avoid fetching unwanted queues (ARAM, Arena, etc.)
+    const queueArray = [...ALLOWED_QUEUES];
+    console.log(`Fetching match IDs for ${queueArray.length} queue types: ${queueArray.join(', ')}`);
+    for (const queueId of queueArray) {
+        const ids = await getMatchIds(puuid, startTime, queueId, existingIds);
+        console.log(`Queue ${queueId}: ${ids.length} NEW match IDs found`);
+        allMatchIds.push(...ids);
+    }
+    console.log(`Total match IDs across all queues: ${allMatchIds.length}`);
+    console.log(`DEBUG: First 5 match IDs:`, allMatchIds.slice(0, 5));
 
     // Deduplicate and filter out matches already in DB
     const matchIds = [...new Set(allMatchIds)].filter(id => !existingIds.has(id));
@@ -149,131 +283,122 @@ async function syncMatches(puuid, onProgress) {
     let processed = 0;
     const newMatchIds = [];
     const total = matchIds.length;
-    const BATCH_SIZE = 2;
 
     // Report initial progress
     if (onProgress) onProgress(0, total);
 
-    // Process in batches
-    for (let i = 0; i < matchIds.length; i += BATCH_SIZE) {
-        const batch = matchIds.slice(i, i + BATCH_SIZE);
+    // Process matches sequentially to respect rate limits (20 req/s, 100 req/2min)
+    for (const id of matchIds) {
+        try {
+            const data = await getMatchData(id);
+            const info = data.info;
 
-        await Promise.allSettled(
-            batch.map(async (id) => {
-                try {
-                    const data = await getMatchData(id);
-                    const info = data.info;
-
-                    // Skip matches from unwanted queue types
-                    if (!ALLOWED_QUEUES.has(info.queueId)) {
-                        console.log(`Skipping match ${id} (queue ${info.queueId} not in allowed list)`);
-                        queueSkipped++;
-                        return { type: 'queue-skipped', id };
-                    }
-
-                    // Fetch timeline data for badge evaluation
-                    let timelineData = null;
-                    try {
-                        await sleep(REQUEST_DELAY_MS);
-                        timelineData = await getMatchTimeline(id);
-                    } catch (tlErr) {
-                        console.warn(`Could not fetch timeline for ${id}: ${tlErr.message}`);
-                    }
-
-                    // Find yourself in the participants list
-                    const me = info.participants.find(p => p.puuid === puuid);
-
-                    if (me) {
-                        // Extract team objectives
-                        const myTeam = info.teams.find(t => t.teamId === me.teamId);
-                        const enemyTeam = info.teams.find(t => t.teamId !== me.teamId);
-
-                        const teamKills = info.participants
-                            .filter(p => p.teamId === me.teamId)
-                            .reduce((sum, p) => sum + p.kills, 0);
-
-                        const myObjectives = myTeam?.objectives || {};
-                        const enemyObjectives = enemyTeam?.objectives || {};
-
-                        const teamDragons = myObjectives.dragon?.kills || 0;
-                        const enemyDragons = enemyObjectives.dragon?.kills || 0;
-                        const teamBarons = myObjectives.baron?.kills || 0;
-                        const enemyBarons = enemyObjectives.baron?.kills || 0;
-                        const teamRiftHeralds = myObjectives.riftHerald?.kills || 0;
-                        const enemyRiftHeralds = enemyObjectives.riftHerald?.kills || 0;
-                        const teamTowers = myObjectives.tower?.kills || 0;
-                        const enemyTowers = enemyObjectives.tower?.kills || 0;
-                        const teamInhibitors = myObjectives.inhibitor?.kills || 0;
-                        const enemyInhibitors = enemyObjectives.inhibitor?.kills || 0;
-
-                        // Extract rune data
-                        const primaryRune = me.perks?.styles?.[0]?.selections?.[0]?.perk || null;
-                        const secondaryRuneStyle = me.perks?.styles?.[1]?.style || null;
-
-                        // Compute advanced stats
-                        const advStats = computeAdvancedStatsForMatch(data, timelineData, me.championName, me.teamId);
-
-                        await dbRun(
-                            `INSERT OR IGNORE INTO matches (
-                                matchId, queueId, gameCreation, gameDuration, championName, champLevel,
-                                win, kills, deaths, assists, goldEarned, totalMinionsKilled,
-                                totalDamageDealtToChampions, visionScore,
-                                doubleKills, tripleKills, quadraKills, pentaKills,
-                                turretKills, inhibitorKills, dragonKills, baronKills, objectivesStolen,
-                                wardsPlaced, wardsKilled, detectorWardsPlaced,
-                                teamPosition, lane,
-                                item0, item1, item2, item3, item4, item5, item6,
-                                teamDragons, enemyDragons, teamBarons, enemyBarons,
-                                teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
-                                teamInhibitors, enemyInhibitors, teamId, teamKills,
-                                primaryRune, secondaryRuneStyle,
-                                rawJson, timelineJson,
-                                csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                            [
-                                id, info.queueId, info.gameCreation, info.gameDuration, me.championName, me.champLevel,
-                                me.win ? 1 : 0, me.kills, me.deaths, me.assists, me.goldEarned, (me.totalMinionsKilled || 0) + (me.neutralMinionsKilled || 0),
-                                me.totalDamageDealtToChampions, me.visionScore,
-                                me.doubleKills, me.tripleKills, me.quadraKills, me.pentaKills,
-                                me.turretKills, me.inhibitorKills, me.dragonKills, me.baronKills, me.objectivesStolen,
-                                me.wardsPlaced, me.wardsKilled, me.detectorWardsPlaced,
-                                me.teamPosition, me.lane,
-                                me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6,
-                                teamDragons, enemyDragons, teamBarons, enemyBarons,
-                                teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
-                                teamInhibitors, enemyInhibitors, me.teamId, teamKills,
-                                primaryRune, secondaryRuneStyle,
-                                compressJson(data), timelineData ? compressJson(timelineData) : null,
-                                advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate
-                            ]
-                        );
-                        newMatches++;
-                        newMatchIds.push(id);
-                        console.log(`Saved match ${id}: ${me.championName} (${me.teamPosition || me.lane}) - ${me.kills}/${me.deaths}/${me.assists}`);
-                        return { type: 'new', id };
-
-
-                    }
-                } catch (error) {
-                    console.error(`Error processing match ${id}:`, error.message);
-                    return { type: 'error', id, error };
+            // Skip matches from unwanted queue types
+            if (!ALLOWED_QUEUES.has(info.queueId)) {
+                console.log(`Skipping match ${id} (queue ${info.queueId} not in allowed list)`);
+                queueSkipped++;
+                processed++;
+                if (onProgress) {
+                    onProgress(processed, total, 'progress', {
+                        new: newMatches,
+                        queueFiltered: queueSkipped,
+                        alreadyInDB: skipped
+                    });
                 }
-            })
-        );
+                continue;
+            }
 
-        // Update progress after batch completes
-        processed += batch.length;
+            // Fetch timeline data for badge evaluation
+            let timelineData = null;
+            try {
+                    timelineData = await getMatchTimeline(id);
+            } catch (tlErr) {
+                console.warn(`Could not fetch timeline for ${id}: ${tlErr.message}`);
+            }
+
+            // Find yourself in the participants list
+            const me = info.participants.find(p => p.puuid === puuid);
+
+            if (me) {
+                // Extract team objectives
+                const myTeam = info.teams.find(t => t.teamId === me.teamId);
+                const enemyTeam = info.teams.find(t => t.teamId !== me.teamId);
+
+                const teamKills = info.participants
+                    .filter(p => p.teamId === me.teamId)
+                    .reduce((sum, p) => sum + p.kills, 0);
+
+                const myObjectives = myTeam?.objectives || {};
+                const enemyObjectives = enemyTeam?.objectives || {};
+
+                const teamDragons = myObjectives.dragon?.kills || 0;
+                const enemyDragons = enemyObjectives.dragon?.kills || 0;
+                const teamBarons = myObjectives.baron?.kills || 0;
+                const enemyBarons = enemyObjectives.baron?.kills || 0;
+                const teamRiftHeralds = myObjectives.riftHerald?.kills || 0;
+                const enemyRiftHeralds = enemyObjectives.riftHerald?.kills || 0;
+                const teamTowers = myObjectives.tower?.kills || 0;
+                const enemyTowers = enemyObjectives.tower?.kills || 0;
+                const teamInhibitors = myObjectives.inhibitor?.kills || 0;
+                const enemyInhibitors = enemyObjectives.inhibitor?.kills || 0;
+
+                // Extract rune data
+                const primaryRune = me.perks?.styles?.[0]?.selections?.[0]?.perk || null;
+                const secondaryRuneStyle = me.perks?.styles?.[1]?.style || null;
+
+                // Compute advanced stats
+                const advStats = computeAdvancedStatsForMatch(data, timelineData, me.championName, me.teamId);
+
+                await dbRun(
+                    `INSERT OR IGNORE INTO matches (
+                        matchId, queueId, gameCreation, gameDuration, championName, champLevel,
+                        win, kills, deaths, assists, goldEarned, totalMinionsKilled,
+                        totalDamageDealtToChampions, visionScore,
+                        doubleKills, tripleKills, quadraKills, pentaKills,
+                        turretKills, inhibitorKills, dragonKills, baronKills, objectivesStolen,
+                        wardsPlaced, wardsKilled, detectorWardsPlaced,
+                        teamPosition, lane,
+                        item0, item1, item2, item3, item4, item5, item6,
+                        teamDragons, enemyDragons, teamBarons, enemyBarons,
+                        teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
+                        teamInhibitors, enemyInhibitors, teamId, teamKills,
+                        primaryRune, secondaryRuneStyle,
+                        rawJson, timelineJson,
+                        csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        id, info.queueId, info.gameCreation, info.gameDuration, me.championName, me.champLevel,
+                        me.win ? 1 : 0, me.kills, me.deaths, me.assists, me.goldEarned, (me.totalMinionsKilled || 0) + (me.neutralMinionsKilled || 0),
+                        me.totalDamageDealtToChampions, me.visionScore,
+                        me.doubleKills, me.tripleKills, me.quadraKills, me.pentaKills,
+                        me.turretKills, me.inhibitorKills, me.dragonKills, me.baronKills, me.objectivesStolen,
+                        me.wardsPlaced, me.wardsKilled, me.detectorWardsPlaced,
+                        me.teamPosition, me.lane,
+                        me.item0, me.item1, me.item2, me.item3, me.item4, me.item5, me.item6,
+                        teamDragons, enemyDragons, teamBarons, enemyBarons,
+                        teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
+                        teamInhibitors, enemyInhibitors, me.teamId, teamKills,
+                        primaryRune, secondaryRuneStyle,
+                        compressJson(data), timelineData ? compressJson(timelineData) : null,
+                        advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate
+                    ]
+                );
+                newMatches++;
+                newMatchIds.push(id);
+                console.log(`Saved match ${id}: ${me.championName} (${me.teamPosition || me.lane}) - ${me.kills}/${me.deaths}/${me.assists}`);
+            }
+        } catch (error) {
+            console.error(`Error processing match ${id}:`, error.message);
+        }
+
+        // Update progress after each match
+        processed++;
         if (onProgress) {
             onProgress(processed, total, 'progress', {
                 new: newMatches,
                 queueFiltered: queueSkipped,
                 alreadyInDB: skipped
             });
-        }
-
-        // Small delay between batches
-        if (i + BATCH_SIZE < matchIds.length) {
-            await sleep(100);
         }
     }
 
@@ -499,7 +624,6 @@ async function backfillTimelines(onProgress) {
 
         // Respect rate limits - single request at a time with delay
         if (i < rows.length - 1) {
-            await sleep(REQUEST_DELAY_MS);
         }
     }
 
@@ -665,7 +789,6 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
         if (onProgress) onProgress(i + 1, puuidsToFetch.length);
 
         if (i < puuidsToFetch.length - 1) {
-            await sleep(REQUEST_DELAY_MS);
         }
     }
 
@@ -673,4 +796,31 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
     return { fetched, failed, total: puuidsToFetch.length };
 }
 
-module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches };
+// Get per-day stats for the activity calendar heatmap.
+// Pass an array of queueIds to restrict to specific game modes.
+async function getDailyStats(queueIds = null) {
+    const where = queueIds && queueIds.length > 0
+        ? `WHERE queueId IN (${queueIds.map(() => '?').join(',')})`
+        : '';
+    const params = queueIds && queueIds.length > 0 ? queueIds : [];
+    return dbAll(`
+        SELECT
+            date(gameCreation / 1000, 'unixepoch', 'localtime') AS gameDate,
+            COUNT(*)                                             AS gamesPlayed,
+            SUM(CASE WHEN win = 1 THEN 1 ELSE 0 END)           AS wins,
+            SUM(CASE WHEN win = 0 THEN 1 ELSE 0 END)           AS losses,
+            SUM(gameDuration)                                    AS totalDuration
+        FROM matches
+        ${where}
+        GROUP BY gameDate
+        ORDER BY gameDate ASC
+    `, params);
+}
+
+const { saveLpSnapshot, seedLpSnapshot, getLpHistory } = require('./database');
+
+module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, getDailyStats, fetchRanksForNewMatches, saveLpSnapshot, seedLpSnapshot, getLpHistory,
+    loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,
+    getCoachingData };
+
+

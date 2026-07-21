@@ -18,7 +18,10 @@
       "Bash(powershell.exe -Command \"$line = \\(Get-Content ''C:\\\\Users\\\\anton\\\\.claude\\\\projects\\\\c--Users-anton-OneDrive-Documents-Nexus-Insights\\\\c063241f-f788-456d-9dc8-4f30f844a6e7.jsonl''\\)[123]; $json = $line | ConvertFrom-Json; foreach \\($c in $json.message.content\\) { if \\($c.type -eq ''text''\\) { Write-Output $c.text } }\")",
       "Bash(powershell.exe -Command:*)",
       "Bash(powershell.exe -NoProfile -Command \"$line = \\(Get-Content ''C:\\\\Users\\\\anton\\\\.claude\\\\projects\\\\c--Users-anton-OneDrive-Documents-Nexus-Insights\\\\c063241f-f788-456d-9dc8-4f30f844a6e7.jsonl''\\)[121]; $json = $line | ConvertFrom-Json; $json.message.content.Count\")",
-      "Bash(powershell.exe:*)"
+      "Bash(powershell.exe:*)",
+      "WebFetch(domain:riot-api-libraries.readthedocs.io)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:codepull.com)"
     ]
   }
 }

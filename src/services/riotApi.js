@@ -1,5 +1,12 @@
 const axios = require('axios');
 const { loadConfig } = require('./config');
+const { RateLimiter, DEFAULT_WINDOWS } = require('./rateLimiter');
+
+// Every outbound Riot call goes through this one limiter so the windows are
+// enforced across the whole app, not per-function.
+const limiter = new RateLimiter(DEFAULT_WINDOWS, {
+    log: msg => console.warn(`[riot] ${msg}`),
+});
 
 // Get config values (loaded fresh each time to pick up changes)
 function getApiKey() {
@@ -14,170 +21,155 @@ function getPlatform() {
     return loadConfig().platform || 'euw1';
 }
 
-// Fetch ALL match IDs with pagination support
-// startTime: epoch timestamp in seconds (optional) - only fetch matches AFTER this time
-// If startTime is provided, fetches ALL matches since that time (no limit)
-// If startTime is null, fetches recent matches (up to 100)
-async function getMatchIds(puuid, startTime = null, queue = null) {
-    const API_KEY = getApiKey();
+/**
+ * Single entry point for Riot HTTP calls.
+ *
+ * The key goes in the X-Riot-Token header rather than an api_key query
+ * parameter — query strings end up in proxy logs, crash reports and browser
+ * history, headers generally don't.
+ */
+function riotGet(url, { params, label, timeout = 15000 } = {}) {
+    const apiKey = getApiKey();
+    if (!apiKey) throw new Error('No Riot API key configured — open Settings and add one.');
+
+    return limiter.request(
+        () => axios.get(url, {
+            params,
+            timeout,
+            headers: { 'X-Riot-Token': apiKey },
+        }),
+        { label }
+    ).then(res => res.data);
+}
+
+// Fetch ALL match IDs with pagination support.
+// startTime: epoch milliseconds (optional) — only fetch matches after this time.
+// existingIds: Set of match IDs already in the DB; hitting one stops pagination.
+async function getMatchIds(puuid, startTime = null, queue = null, existingIds = null) {
     const REGION = getRegion();
     const allMatchIds = [];
     const batchSize = 100; // Riot API max per request
     let start = 0;
 
-    console.log(`Fetching match IDs${startTime ? ` since ${new Date(startTime * 1000).toISOString()}` : ' (recent)'}${queue ? ` (queue=${queue})` : ''}...`);
+    console.log(`Fetching match IDs${startTime ? ` since ${new Date(startTime).toISOString()}` : ' (recent)'}${queue ? ` (queue=${queue})` : ''}...`);
 
     while (true) {
-        let url = `https://${REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids?start=${start}&count=${batchSize}&api_key=${API_KEY}`;
+        const url = `https://${REGION}.api.riotgames.com/lol/match/v5/matches/by-puuid/${puuid}/ids`;
+        const params = { start, count: batchSize };
 
-        // Add startTime filter if provided
-        if (startTime) {
-            url += `&startTime=${startTime}`;
+        // Riot expects startTime in SECONDS; the app stores milliseconds
+        if (startTime) params.startTime = Math.floor(startTime / 1000);
+        if (queue) params.queue = queue;
+
+        const matchIds = await riotGet(url, { params, label: `match ids start=${start}` });
+
+        if (matchIds.length === 0) break;
+
+        // If we hit a match we already have, everything older is already stored
+        let stopFetching = false;
+        for (const id of matchIds) {
+            if (existingIds && existingIds.has(id)) {
+                console.log(`Encountered existing match ID ${id}, stopping pagination.`);
+                stopFetching = true;
+                break;
+            }
+            allMatchIds.push(id);
         }
 
-        // Add queue filter if provided (required for special modes like ARAM Mayhem)
-        if (queue) {
-            url += `&queue=${queue}`;
-        }
+        if (stopFetching) break;
+        if (matchIds.length < batchSize) break; // partial batch = end of history
 
-        console.log(`Fetching batch starting at index ${start}...`);
-        const response = await axios.get(url);
-        const matchIds = response.data;
-
-        console.log(`Got ${matchIds.length} match IDs in this batch`);
-
-        if (matchIds.length === 0) {
-            // No more matches available
-            console.log('No more matches found, pagination complete.');
-            break;
-        }
-
-        allMatchIds.push(...matchIds);
         start += batchSize;
-
-        // If we got less than batchSize, we've reached the end
-        if (matchIds.length < batchSize) {
-            console.log('Received partial batch, pagination complete.');
-            break;
-        }
-
-        // Small delay between pagination requests to respect rate limits
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // No manual sleep here — the limiter paces every request.
     }
 
-    console.log(`Total match IDs fetched: ${allMatchIds.length}`);
+    console.log(`Total NEW match IDs fetched: ${allMatchIds.length}`);
     return allMatchIds;
 }
 
 async function getMatchData(matchId) {
-    const API_KEY = getApiKey();
     const REGION = getRegion();
-    const url = `https://${REGION}.api.riotgames.com/lol/match/v5/matches/${matchId}?api_key=${API_KEY}`;
-    const response = await axios.get(url);
-    return response.data;
+    return riotGet(
+        `https://${REGION}.api.riotgames.com/lol/match/v5/matches/${matchId}`,
+        { label: `match ${matchId}` }
+    );
 }
 
 async function getMatchTimeline(matchId) {
-    const API_KEY = getApiKey();
     const REGION = getRegion();
-    const url = `https://${REGION}.api.riotgames.com/lol/match/v5/matches/${matchId}/timeline?api_key=${API_KEY}`;
-    const response = await axios.get(url);
-    return response.data;
+    return riotGet(
+        `https://${REGION}.api.riotgames.com/lol/match/v5/matches/${matchId}/timeline`,
+        { label: `timeline ${matchId}`, timeout: 30000 }
+    );
 }
 
 // Get PUUID from Riot ID (gameName#tagLine)
 async function getPuuidByRiotId(gameName, tagLine) {
-    const API_KEY = getApiKey();
     const REGION = getRegion();
-
-    console.log('=== getPuuidByRiotId DEBUG ===');
-    console.log('gameName received:', JSON.stringify(gameName));
-    console.log('tagLine received:', JSON.stringify(tagLine));
-    console.log('API_KEY present:', API_KEY ? 'YES (length: ' + API_KEY.length + ')' : 'NO - MISSING!');
-    console.log('REGION:', REGION);
-
-    // Account-v1 uses regional routing (americas, europe, or asia)
-    const url = `https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}?api_key=${API_KEY}`;
-    console.log('Full URL (redacted key):', url.replace(API_KEY, 'REDACTED'));
+    // Account-v1 uses regional routing (americas, europe, asia)
+    const url = `https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/`
+        + `${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`;
 
     try {
-        const response = await axios.get(url);
-        console.log('API Response success! PUUID:', response.data.puuid);
-        return response.data.puuid; // This returns the 78-character PUUID
+        const data = await riotGet(url, { label: `account ${gameName}#${tagLine}`, timeout: 10000 });
+        return data.puuid; // 78-character PUUID
     } catch (error) {
-        console.error('API Error in getPuuidByRiotId:', error.message);
-        if (error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response data:', JSON.stringify(error.response.data));
-        }
+        console.error(`Could not resolve ${gameName}#${tagLine}:`, describeError(error));
         throw error;
     }
 }
 
-// Get summoner info (needed for league endpoint)
+// Get summoner info (needed for the league endpoint)
 async function getSummonerByPuuid(puuid) {
-    const API_KEY = getApiKey();
     const PLATFORM = getPlatform();
-    console.log('getSummonerByPuuid called with PUUID:', puuid);
     try {
-        const url = `https://${PLATFORM}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}?api_key=${API_KEY}`;
-        console.log('Fetching summoner by PUUID from:', url.replace(API_KEY, 'REDACTED'));
-        const response = await axios.get(url, { timeout: 10000 });
-        console.log('Summoner data received:', response.data);
-        return response.data; // Returns: id, accountId, puuid, name, summonerLevel, etc.
+        return await riotGet(
+            `https://${PLATFORM}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}`,
+            { label: 'summoner', timeout: 10000 }
+        );
     } catch (error) {
-        console.error('ERROR in getSummonerByPuuid:', error.message);
-        if (error.response) {
-            console.error('Response status:', error.response.status);
-            console.error('Response data:', error.response.data);
-        }
+        console.error('Error fetching summoner:', describeError(error));
         throw error;
     }
 }
 
 // Get league/rank information by PUUID
 async function getLeagueByPuuid(puuid) {
-    const API_KEY = getApiKey();
     const PLATFORM = getPlatform();
-    console.log('getLeagueByPuuid called');
-    console.log('API_KEY loaded:', API_KEY ? 'YES (length: ' + API_KEY.length + ')' : 'NO - API KEY IS MISSING!');
-
     try {
-        const url = `https://${PLATFORM}.api.riotgames.com/lol/league/v4/entries/by-puuid/${puuid}?api_key=${API_KEY}`;
-        console.log('Fetching league data from:', url.replace(API_KEY, 'REDACTED'));
-        const response = await axios.get(url, { timeout: 10000 });
+        const leagues = await riotGet(
+            `https://${PLATFORM}.api.riotgames.com/lol/league/v4/entries/by-puuid/${puuid}`,
+            { label: 'league', timeout: 10000 }
+        );
 
-        // Returns array of league entries (one for each queue type)
-        const leagues = response.data;
-        console.log('League entries received:', leagues);
-
-        // Find Solo/Duo and Flex queues
-        const soloQueue = leagues.find(league => league.queueType === 'RANKED_SOLO_5x5');
-        const flexQueue = leagues.find(league => league.queueType === 'RANKED_FLEX_SR');
+        const pick = (entry) => entry ? {
+            tier: entry.tier,
+            rank: entry.rank,
+            leaguePoints: entry.leaguePoints,
+            wins: entry.wins,
+            losses: entry.losses,
+        } : null;
 
         return {
-            solo: soloQueue ? {
-                tier: soloQueue.tier,
-                rank: soloQueue.rank,
-                leaguePoints: soloQueue.leaguePoints,
-                wins: soloQueue.wins,
-                losses: soloQueue.losses
-            } : null,
-            flex: flexQueue ? {
-                tier: flexQueue.tier,
-                rank: flexQueue.rank,
-                leaguePoints: flexQueue.leaguePoints,
-                wins: flexQueue.wins,
-                losses: flexQueue.losses
-            } : null
+            solo: pick(leagues.find(l => l.queueType === 'RANKED_SOLO_5x5')),
+            flex: pick(leagues.find(l => l.queueType === 'RANKED_FLEX_SR')),
         };
     } catch (error) {
-        console.error('Error fetching league data:', error.message);
-        if (error.response) {
-            console.error('API Response:', error.response.status, error.response.data);
-        }
+        console.error('Error fetching league data:', describeError(error));
         throw error;
     }
 }
 
-module.exports = { getMatchIds, getMatchData, getMatchTimeline, getPuuidByRiotId, getSummonerByPuuid, getLeagueByPuuid };
+/** Error summary that never includes the API key. */
+function describeError(error) {
+    if (error.response) {
+        return `HTTP ${error.response.status} ${JSON.stringify(error.response.data)}`;
+    }
+    return error.message;
+}
+
+module.exports = {
+    getMatchIds, getMatchData, getMatchTimeline,
+    getPuuidByRiotId, getSummonerByPuuid, getLeagueByPuuid,
+    limiter,
+};

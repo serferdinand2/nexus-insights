@@ -1,0 +1,214 @@
+{
+  "results": [
+    {
+      "display": "Toan#GGWP",
+      "games": 60,
+      "winRate": "46.7",
+      "kda": "2.73",
+      "primaryRole": "JUNGLE",
+      "topChamps": [
+        "Nocturne (22g 50%wr)",
+        "Leblanc (6g 67%wr)",
+        "Sejuani (4g 25%wr)"
+      ],
+      "consistency": "3.74",
+      "trend": "-19.9",
+      "winKDA": "4.91",
+      "lossKDA": "1.65",
+      "winDmg": 20105,
+      "lossDmg": 15084,
+      "dmgDiff": 5021,
+      "avgVision": "35.6",
+      "avgCSmin": "6.12",
+      "avgDmg": 17427,
+      "dmgShare": "16.0"
+    },
+    {
+      "display": "Catto go purrrr#EUW",
+      "games": 33,
+      "winRate": "45.5",
+      "kda": "2.42",
+      "primaryRole": "BOTTOM",
+      "topChamps": [
+        "Velkoz (4g 50%wr)",
+        "Sion (2g 100%wr)",
+        "Varus (2g 50%wr)"
+      ],
+      "consistency": "3.74",
+      "trend": "0.0",
+      "winKDA": "3.65",
+      "lossKDA": "1.81",
+      "winDmg": 33288,
+      "lossDmg": 33486,
+      "dmgDiff": -198,
+      "avgVision": "26.8",
+      "avgCSmin": "6.38",
+      "avgDmg": 33396,
+      "dmgShare": "27.3"
+    },
+    {
+      "display": "Lazar Milin#1337",
+      "games": 2,
+      "winRate": "0.0",
+      "kda": "0.60",
+      "primaryRole": "TOP",
+      "topChamps": [
+        "Camille (1g 0%wr)",
+        "Kennen (1g 0%wr)"
+      ],
+      "consistency": "0.11",
+      "trend": "0.0",
+      "winKDA": "N/A",
+      "lossKDA": "0.60",
+      "winDmg": 0,
+      "lossDmg": 13693,
+      "dmgDiff": -13693,
+      "avgVision": "18.5",
+      "avgCSmin": "6.10",
+      "avgDmg": 13693,
+      "dmgShare": "22.5"
+    },
+    {
+      "display": "chipotles#EUW",
+      "games": 3,
+      "winRate": "33.3",
+      "kda": "1.08",
+      "primaryRole": "TOP",
+      "topChamps": [
+        "Darius (3g 33%wr)"
+      ],
+      "consistency": "0.36",
+      "trend": "0.0",
+      "winKDA": "1.33",
+      "lossKDA": "1.00",
+      "winDmg": 11837,
+      "lossDmg": 12295,
+      "dmgDiff": -458,
+      "avgVision": "21.0",
+      "avgCSmin": "6.50",
+      "avgDmg": 12142,
+      "dmgShare": "18.3"
+    },
+    {
+      "display": "NIKOLa23#EUW",
+      "games": 1,
+      "winRate": "0.0",
+      "kda": "1.22",
+      "primaryRole": "JUNGLE",
+      "topChamps": [
+        "Shyvana (1g 0%wr)"
+      ],
+      "consistency": "0.00",
+      "trend": "0.0",
+      "winKDA": "N/A",
+      "lossKDA": "1.22",
+      "winDmg": 0,
+      "lossDmg": 12271,
+      "dmgDiff": -12271,
+      "avgVision": "18.0",
+      "avgCSmin": "4.34",
+      "avgDmg": 12271,
+      "dmgShare": "15.1"
+    },
+    {
+      "display": "nikolath#EUNE",
+      "games": 14,
+      "winRate": "64.3",
+      "kda": "2.11",
+      "primaryRole": "TOP",
+      "topChamps": [
+        "Quinn (12g 58%wr)",
+        "Shen (1g 100%wr)",
+        "Malphite (1g 100%wr)"
+      ],
+      "consistency": "3.32",
+      "trend": "-8.3",
+      "winKDA": "3.10",
+      "lossKDA": "1.14",
+      "winDmg": 16634,
+      "lossDmg": 15762,
+      "dmgDiff": 872,
+      "avgVision": "24.8",
+      "avgCSmin": "5.92",
+      "avgDmg": 16322,
+      "dmgShare": "16.0"
+    },
+    {
+      "display": "JonesAlex123#EUW",
+      "games": 1,
+      "winRate": "100.0",
+      "kda": "2.75",
+      "primaryRole": "UTILITY",
+      "topChamps": [
+        "Nautilus (1g 100%wr)"
+      ],
+      "consistency": "0.00",
+      "trend": "0.0",
+      "winKDA": "2.75",
+      "lossKDA": "N/A",
+      "winDmg": 20149,
+      "lossDmg": 0,
+      "dmgDiff": 20149,
+      "avgVision": "123.0",
+      "avgCSmin": "1.19",
+      "avgDmg": 20149,
+      "dmgShare": "11.1"
+    },
+    {
+      "display": "Aleksa Milin#1337",
+      "games": 4,
+      "winRate": "25.0",
+      "kda": "3.08",
+      "primaryRole": "MIDDLE",
+      "topChamps": [
+        "Kennen (2g 50%wr)",
+        "Lux (2g 0%wr)"
+      ],
+      "consistency": "9.29",
+      "trend": "0.0",
+      "winKDA": "23.00",
+      "lossKDA": "1.42",
+      "winDmg": 36663,
+      "lossDmg": 11981,
+      "dmgDiff": 24682,
+      "avgVision": "17.8",
+      "avgCSmin": "7.03",
+      "avgDmg": 18152,
+      "dmgShare": "25.6"
+    },
+    {
+      "display": "Splachina#YUG",
+      "games": 2,
+      "winRate": "50.0",
+      "kda": "2.17",
+      "primaryRole": "JUNGLE",
+      "topChamps": [
+        "Sejuani (1g 0%wr)",
+        "Nautilus (1g 100%wr)"
+      ],
+      "consistency": "1.40",
+      "trend": "0.0",
+      "winKDA": "3.80",
+      "lossKDA": "1.00",
+      "winDmg": 7893,
+      "lossDmg": 6115,
+      "dmgDiff": 1778,
+      "avgVision": "46.5",
+      "avgCSmin": "2.98",
+      "avgDmg": 7004,
+      "dmgShare": "7.9"
+    }
+  ],
+  "synergy": [
+    {
+      "pair": "Toan#GGWP ⟷ nikolath#EUNE",
+      "games": 14,
+      "wr": "64.3"
+    },
+    {
+      "pair": "Catto go purrrr#EUW ⟷ Toan#GGWP",
+      "games": 33,
+      "wr": "45.5"
+    }
+  ]
+}

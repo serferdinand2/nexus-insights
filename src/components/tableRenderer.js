@@ -1,6 +1,8 @@
 // Table rendering module for match display
 
 // Get position icon URL from Community Dragon
+const { escapeHtml } = require('./dom');
+
 function getPositionIcon(teamPosition) {
     if (!teamPosition) return null;
 
@@ -170,7 +172,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
             <td>
                 <div class="table-champion-cell">
                     <div class="table-champion-icon">
-                        ${champIcon ? `<img src="${champIcon}" alt="${match.championName}" onerror="this.style.display='none'">` : ''}
+                        ${champIcon ? `<img src="${champIcon}" alt="${escapeHtml(match.championName)}" onerror="this.style.display='none'">` : ''}
                     </div>
                     <span class="table-champion-name">${formatChampionName(match.championName)}</span>
                 </div>
@@ -216,6 +218,35 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
     `;
 }
 
+/**
+ * Map matchId -> index in the full dataset.
+ *
+ * Row markup embeds the index into window.matchesData so click handlers can
+ * find the match again. This used to be `matchesData.indexOf(match)` per row,
+ * which is a linear scan inside a map — O(n²) over the history. The map is
+ * cached and only rebuilt when the dataset identity changes.
+ */
+let _indexMapSource = null;
+let _indexMap       = null;
+
+function getIndexMap(matchesData) {
+    if (_indexMapSource !== matchesData) {
+        _indexMap = new Map();
+        matchesData.forEach((m, i) => _indexMap.set(m.matchId, i));
+        _indexMapSource = matchesData;
+    }
+    return _indexMap;
+}
+
+/** Just the <tr> rows — used both for a full render and for appending a page. */
+function renderMatchRows(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, timeAgo, formatDamage, renderRunes, renderSummonerSpells) {
+    const indexMap = getIndexMap(matchesData);
+    return matches.map((match) => {
+        const originalIndex = indexMap.has(match.matchId) ? indexMap.get(match.matchId) : -1;
+        return renderMatchRow(match, originalIndex, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, timeAgo, formatDamage, renderRunes, renderSummonerSpells);
+    }).join('');
+}
+
 // Render match table with header
 function renderMatchTable(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, timeAgo, formatDamage, renderRunes, renderSummonerSpells) {
     if (matches.length === 0) {
@@ -227,10 +258,7 @@ function renderMatchTable(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getCh
         `;
     }
 
-    const matchRows = matches.map((match) => {
-        const originalIndex = matchesData.indexOf(match);
-        return renderMatchRow(match, originalIndex, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, timeAgo, formatDamage, renderRunes, renderSummonerSpells);
-    }).join('');
+    const matchRows = renderMatchRows(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, timeAgo, formatDamage, renderRunes, renderSummonerSpells);
 
     return `
         <div class="match-table-container">
@@ -455,6 +483,7 @@ function getInsightObjectiveRate(val) {
 // Export functions for use in index.html
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
+        renderMatchRows,
         renderMatchTable,
         calculateStats,
         getRankedStats,

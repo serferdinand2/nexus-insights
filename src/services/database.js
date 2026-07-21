@@ -213,6 +213,23 @@ function initDatabase() {
       )
     `);
 
+    // LP progression history (one snapshot per queue per day)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS lp_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        queue TEXT NOT NULL,
+        tier TEXT,
+        rank TEXT,
+        lp INTEGER NOT NULL,
+        recorded_date TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL
+      )
+    `);
+    db.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_lp_queue_date
+      ON lp_history(queue, recorded_date)
+    `);
+
     // Add indexes for performance
     db.run(`
       CREATE INDEX IF NOT EXISTS idx_gameCreation 
@@ -302,4 +319,50 @@ function initDatabase() {
   }, 500);
 }
 
-module.exports = { initDatabase, db, dbPath };
+/**
+ * Save (or overwrite) today's LP snapshot for a given queue.
+ */
+function saveLpSnapshot(queue, tier, rank, lp) {
+  const today = new Date().toISOString().slice(0, 10);
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(queue, recorded_date) DO UPDATE SET
+         tier = excluded.tier, rank = excluded.rank,
+         lp = excluded.lp, recorded_at = excluded.recorded_at`,
+      [queue, tier, rank, lp, today, Date.now()],
+      function (err) { if (err) reject(err); else resolve(this); }
+    );
+  });
+}
+
+/**
+ * Seed a historical LP snapshot — INSERT OR IGNORE, never overwrites existing data.
+ */
+function seedLpSnapshot(queue, tier, rank, lp, date) {
+  return new Promise((resolve, reject) => {
+    db.run(
+      `INSERT OR IGNORE INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [queue, tier, rank, lp, date, new Date(date + 'T12:00:00Z').getTime()],
+      function (err) { if (err) reject(err); else resolve(this); }
+    );
+  });
+}
+
+/**
+ * Fetch full LP history for a queue, oldest first.
+ */
+function getLpHistory(queue) {
+  return new Promise((resolve, reject) => {
+    db.all(
+      `SELECT recorded_date, tier, rank, lp FROM lp_history
+       WHERE queue = ? ORDER BY recorded_date ASC`,
+      [queue],
+      (err, rows) => { if (err) reject(err); else resolve(rows || []); }
+    );
+  });
+}
+
+module.exports = { initDatabase, db, dbPath, saveLpSnapshot, seedLpSnapshot, getLpHistory };
