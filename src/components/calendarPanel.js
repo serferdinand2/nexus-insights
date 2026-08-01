@@ -41,7 +41,50 @@ const SOLO_LP_SEED = [
     { date: '2026-05-19', tier: 'EMERALD',  rank: 'IV', lp: 51 },
 ];
 
+const { RANK_COLORS_UC: LP_TIER_COLORS } = require('./rankTiers');
+
 const LP_TIER_NAMES = ['IRON','BRONZE','SILVER','GOLD','PLATINUM','EMERALD','DIAMOND'];
+const LP_FALLBACK_COLOR = '#8a8a9a';
+
+/** Which tier an absolute-LP value falls in (400 LP per tier, 4 divisions). */
+function tierIndexForAbs(absLp) {
+    return Math.max(0, Math.min(LP_TIER_NAMES.length - 1, Math.floor(absLp / 400)));
+}
+
+function tierColorForAbs(absLp) {
+    return LP_TIER_COLORS[LP_TIER_NAMES[tierIndexForAbs(absLp)]] || LP_FALLBACK_COLOR;
+}
+
+/**
+ * A vertical gradient that paints each tier's slice of the chart in its own
+ * rank colour, with hard edges at the tier boundaries. Used for both the line
+ * and the fill, so climbing through a tier visibly changes the line's colour.
+ */
+function makeTierGradient(ctx, top, height, minAbs, maxAbs, alpha) {
+    const grad  = ctx.createLinearGradient(0, top, 0, top + height);
+    const range = (maxAbs - minAbs) || 1;
+    const paint = (hex) => (alpha === undefined ? hex : hexToRgba(hex, alpha));
+    // y grows downward while LP grows upward, so offset 0 is the HIGHEST rank
+    const offsetOf = (abs) => Math.min(1, Math.max(0, (maxAbs - abs) / range));
+
+    const stops = [
+        { at: 0, color: paint(tierColorForAbs(maxAbs)) },
+        { at: 1, color: paint(tierColorForAbs(minAbs)) },
+    ];
+
+    for (let ti = 1; ti < LP_TIER_NAMES.length; ti++) {
+        const boundary = ti * 400;
+        if (boundary <= minAbs || boundary >= maxAbs) continue;
+        const at = offsetOf(boundary);
+        // Two stops at the same offset = a crisp line between tiers
+        stops.push({ at, color: paint(LP_TIER_COLORS[LP_TIER_NAMES[ti]]     || LP_FALLBACK_COLOR) });
+        stops.push({ at, color: paint(LP_TIER_COLORS[LP_TIER_NAMES[ti - 1]] || LP_FALLBACK_COLOR) });
+    }
+
+    stops.sort((a, b) => a.at - b.at);
+    for (const s of stops) grad.addColorStop(s.at, s.color);
+    return grad;
+}
 const LP_TIER_SHORT = { IRON:'I', BRONZE:'B', SILVER:'S', GOLD:'G', PLATINUM:'P', EMERALD:'E', DIAMOND:'D', MASTER:'M', GRANDMASTER:'GM', CHALLENGER:'C' };
 const LP_RANK_ORDER = { IV:0, III:1, II:2, I:3 };
 const LP_RANK_SHORT = { IV:'4', III:'3', II:'2', I:'1' };
@@ -258,13 +301,79 @@ function seedLpHistoryOnce() {
     return lpSeedPromise;
 }
 
+// Which queue/colour each canvas draws, so a resize can redraw it unattended
+const LP_CHARTS = [
+    { canvasId: 'lpChartSolo', queue: 'solo', color: '#4fc3f7' },
+    { canvasId: 'lpChartFlex', queue: 'flex', color: '#a78bfa' },
+];
+
+/**
+ * A canvas has two sizes: its CSS box and its bitmap. drawLpChart sizes the
+ * bitmap from the CSS box at draw time — so if the box later gets wider (a
+ * bigger window, a layout change, the panel appearing after charts drew), the
+ * old bitmap is simply stretched to fit. That is what made the axis labels
+ * look huge and blurry. Redrawing on resize keeps the two in step.
+ */
+let lpResizeObserver = null;
+
+function observeLpChartResize() {
+    if (lpResizeObserver || typeof ResizeObserver === 'undefined') return;
+
+    const pending = new Map();
+
+    lpResizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+            const spec = LP_CHARTS.find(c => c.canvasId === entry.target.id);
+            if (!spec) continue;
+
+            const width = Math.round(entry.contentRect.width);
+            const height = Math.round(entry.contentRect.height);
+            if (!width || !height) continue;
+
+            // Ignore repeat notifications for a size we already drew
+            const last = pending.get(spec.canvasId);
+            if (last && last.width === width && last.height === height) continue;
+            pending.set(spec.canvasId, { width, height });
+
+            // Coalesce bursts of resize events into one redraw per frame
+            if (spec._frame) cancelAnimationFrame(spec._frame);
+            spec._frame = requestAnimationFrame(() => {
+                spec._frame = null;
+                drawLpChart(spec.canvasId, spec.queue, spec.color)
+                    .catch(e => console.warn('LP chart redraw failed:', e));
+            });
+        }
+    });
+
+    for (const spec of LP_CHARTS) {
+        const canvas = document.getElementById(spec.canvasId);
+        if (canvas) lpResizeObserver.observe(canvas);
+    }
+}
+
 window.renderLpCharts = async function () {
     await seedLpHistoryOnce();
-    await Promise.all([
-        drawLpChart('lpChartSolo', 'solo', '#4fc3f7'),
-        drawLpChart('lpChartFlex', 'flex', '#a78bfa'),
-    ]);
+    invalidateLpHistoryCache(); // a sync may have added new snapshots
+    await Promise.all(LP_CHARTS.map(c => drawLpChart(c.canvasId, c.queue, c.color)));
+    observeLpChartResize();
 };
+
+// LP history barely changes, but a resize can trigger many redraws — cache it
+// so dragging the window edge doesn't fire a DB query per frame.
+const lpHistoryCache = new Map();
+
+function invalidateLpHistoryCache() { lpHistoryCache.clear(); }
+
+// The LP watcher writes new readings behind the chart's back, so it needs a
+// way to drop the cache before asking for a redraw.
+window.invalidateLpCache = invalidateLpHistoryCache;
+
+async function getLpHistoryCached(queue) {
+    if (!lpHistoryCache.has(queue)) {
+        lpHistoryCache.set(queue, await getLpHistory(queue));
+    }
+    return lpHistoryCache.get(queue);
+}
 
 async function drawLpChart(canvasId, queue, lineColor) {
     const canvas = document.getElementById(canvasId);
@@ -272,20 +381,33 @@ async function drawLpChart(canvasId, queue, lineColor) {
     const ctx = canvas.getContext('2d');
 
     let history = [];
-    try { history = await getLpHistory(queue); } catch (e) { return; }
+    try { history = await getLpHistoryCached(queue); } catch (e) { return; }
 
     // Show only the most recent 10 snapshots
     history = history.slice(-10);
 
     const dpr  = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    if (!rect.width) return;
-    canvas.width  = rect.width  * dpr;
-    canvas.height = rect.height * dpr;
+    // Nothing to draw into yet (panel still hidden, or zero-width layout)
+    if (!rect.width || !rect.height) return;
+
+    // Match the bitmap to the CSS box. Assigning width/height also resets the
+    // context transform, so the dpr scale below is applied exactly once.
+    canvas.width  = Math.round(rect.width  * dpr);
+    canvas.height = Math.round(rect.height * dpr);
     ctx.scale(dpr, dpr);
 
     const W = rect.width, H = rect.height;
-    const PAD = { top: 20, right: 16, bottom: 28, left: 34 };
+
+    // Padding scales with height instead of being fixed. At the old 110px the
+    // caps apply and nothing changes; on a shorter canvas the gutters shrink
+    // rather than eating the whole plot area.
+    const PAD = {
+        top:    Math.min(20, Math.round(H * 0.19)),
+        right:  16,
+        bottom: Math.min(28, Math.round(H * 0.26)),
+        left:   34,
+    };
     const cW  = W - PAD.left - PAD.right;
     const cH  = H - PAD.top  - PAD.bottom;
 
@@ -307,44 +429,64 @@ async function drawLpChart(canvasId, queue, lineColor) {
     const toX    = i => PAD.left + (n > 1 ? (i / (n - 1)) * cW : cW / 2);
     const toY    = v => PAD.top  + cH - ((v - minAbs) / range) * cH;
 
-    // Tier / division grid lines
-    ctx.setLineDash([3, 4]);
+    // ── Tier bands: a faint wash of each rank's colour behind its LP range ──
+    for (let ti = 0; ti < LP_TIER_NAMES.length; ti++) {
+        const bandLow  = Math.max(minAbs, ti * 400);
+        const bandHigh = Math.min(maxAbs, (ti + 1) * 400);
+        if (bandHigh <= bandLow) continue;
+
+        const yTop    = toY(bandHigh);
+        const yBottom = toY(bandLow);
+        ctx.fillStyle = hexToRgba(LP_TIER_COLORS[LP_TIER_NAMES[ti]] || LP_FALLBACK_COLOR, 0.09);
+        ctx.fillRect(PAD.left, yTop, cW, Math.max(0, yBottom - yTop));
+    }
+
+    // ── Tier / division grid lines ──
     ctx.lineWidth = 1;
     LP_TIER_NAMES.forEach((tier, ti) => {
-        [0,1,2,3].forEach(ri => {
+        const tierColor = LP_TIER_COLORS[tier] || LP_FALLBACK_COLOR;
+        [0, 1, 2, 3].forEach(ri => {
             const absLp = ti * 400 + ri * 100;
             if (absLp < minAbs || absLp > maxAbs) return;
             const y   = toY(absLp);
             const lbl = `${LP_TIER_SHORT[tier]}${4 - ri}`;
-            ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+
+            // Solid, slightly stronger line at a tier boundary; dashed within
+            const isTierStart = ri === 0;
+            ctx.setLineDash(isTierStart ? [] : [3, 4]);
+            ctx.strokeStyle = isTierStart
+                ? hexToRgba(tierColor, 0.45)
+                : hexToRgba(tierColor, 0.16);
             ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
-            ctx.fillStyle = 'rgba(255,255,255,0.28)';
-            ctx.font      = '9px Inter, sans-serif';
+
+            ctx.fillStyle = hexToRgba(tierColor, isTierStart ? 0.95 : 0.5);
+            ctx.font      = `${isTierStart ? 'bold ' : ''}9px Inter, sans-serif`;
             ctx.textAlign = 'right';
             ctx.fillText(lbl, PAD.left - 4, y + 3.5);
         });
     });
     ctx.setLineDash([]);
 
-    // Gradient fill under line
-    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + cH);
-    grad.addColorStop(0, hexToRgba(lineColor, 0.20));
-    grad.addColorStop(1, hexToRgba(lineColor, 0.0));
-
     if (n > 1) {
+        // Fill and line both use the rank-coloured gradient, so the line takes
+        // on each tier's colour as it passes through it.
+        const fillGrad = makeTierGradient(ctx, PAD.top, cH, minAbs, maxAbs, 0.22);
+        const lineGrad = makeTierGradient(ctx, PAD.top, cH, minAbs, maxAbs);
+
         ctx.beginPath();
         ctx.moveTo(toX(0), toY(absLps[0]));
         for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(absLps[i]));
         ctx.lineTo(toX(n-1), PAD.top + cH);
         ctx.lineTo(toX(0),   PAD.top + cH);
         ctx.closePath();
-        ctx.fillStyle = grad;
+        ctx.fillStyle = fillGrad;
         ctx.fill();
 
         ctx.beginPath();
-        ctx.strokeStyle = lineColor;
+        ctx.strokeStyle = lineGrad;
         ctx.lineWidth   = 2;
         ctx.lineJoin    = 'round';
+        ctx.lineCap     = 'round';
         ctx.moveTo(toX(0), toY(absLps[0]));
         for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(absLps[i]));
         ctx.stroke();
@@ -353,18 +495,24 @@ async function drawLpChart(canvasId, queue, lineColor) {
     // Dots + point labels on first, last, and tier/rank changes
     history.forEach((r, i) => {
         const x = toX(i), y = toY(absLps[i]);
+        const dotColor = tierColorForAbs(absLps[i]);
+        // Dark outline keeps the dot readable against its own tier band
         ctx.beginPath();
-        ctx.arc(x, y, 3, 0, Math.PI * 2);
-        ctx.fillStyle = lineColor;
+        ctx.arc(x, y, 3.6, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(10,12,18,0.85)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.6, 0, Math.PI * 2);
+        ctx.fillStyle = dotColor;
         ctx.fill();
 
         const prev        = history[i - 1];
         const tierChanged = !prev || prev.tier !== r.tier || prev.rank !== r.rank;
         if (i === 0 || i === n - 1 || tierChanged) {
-            ctx.fillStyle = 'rgba(255,255,255,0.65)';
-            ctx.font      = '9px Inter, sans-serif';
+            ctx.fillStyle = dotColor;
+            ctx.font      = 'bold 9px Inter, sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(getLpPointLabel(r.tier, r.rank, r.lp), x, y - 7);
+            ctx.fillText(getLpPointLabel(r.tier, r.rank, r.lp), x, y - 8);
         }
     });
 

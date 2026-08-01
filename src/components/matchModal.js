@@ -1,20 +1,19 @@
 /**
- * matchModal.js — Match detail modal and inline expanded table rows.
- * Reads window.matchesData, window.DDRAGON_BASE, window.QUEUE_NAMES at call-time.
+ * matchModal.js — Inline expanded table rows (10-player breakdown + badges).
+ *
+ * The old full-screen match detail modal was removed 2026-07: it became
+ * unreachable once match history moved to a table whose rows expand inline.
+ * Reads window.matchesData, window.DDRAGON_BASE at call-time.
  */
 
-const { getMatchById, getMatchParticipantRanks } = require('../services/matchService');
-const { evaluateBadges }                          = require('./badgeEvaluator');
-const { escapeHtml }                              = require('./dom');
+const { getMatchById }   = require('../services/matchService');
+const { evaluateBadges } = require('./badgeEvaluator');
+const { escapeHtml }     = require('./dom');
 const {
     RUNE_ICONS,
     getChampionIcon,
-    formatDuration,
     formatDamage,
-    timeAgo,
-    getPositionName,
-    getSummonerSpellImageName,
-    renderModalItems
+    getSummonerSpellImageName
 } = require('./matchCard');
 
 // Badge evaluation cache — avoids re-evaluating on repeated expands
@@ -276,173 +275,6 @@ window.toggleRowExpand = async function (index) {
     }
 
     clickedRow.insertAdjacentHTML('afterend', createExpandedRow(fullMatch || match, index, badges));
-};
-
-// ---------------------------------------------------------------------------
-// MATCH DETAIL MODAL
-// ---------------------------------------------------------------------------
-
-window.openMatchModal = async function (index) {
-    const matchesData = window.matchesData || [];
-    const match       = matchesData[index];
-    if (!match) return;
-
-    const modal       = document.getElementById('matchModal');
-    const modalHeader = document.getElementById('modalHeader');
-    const modalBody   = document.getElementById('modalBody');
-
-    const fullMatch = await getMatchById(match.matchId);
-    if (!fullMatch || !fullMatch.rawJson) { console.error('Could not load full match data'); return; }
-
-    const matchData = typeof fullMatch.rawJson === 'string' ? JSON.parse(fullMatch.rawJson) : fullMatch.rawJson;
-    const info      = matchData.info;
-    const isWin     = match.win === 1;
-    const queueName = (window.QUEUE_NAMES || {})[match.queueId] || 'Game';
-    const champIcon = getChampionIcon(match.championName);
-    const kda       = match.deaths === 0 ? 'Perfect' : ((match.kills + match.assists) / match.deaths).toFixed(2);
-    const DDRAGON   = window.DDRAGON_BASE;
-    const MASTER_PLUS = ['MASTER', 'GRANDMASTER', 'CHALLENGER'];
-
-    modalHeader.innerHTML = `
-                <div class="modal-champion-icon">
-                    ${champIcon ? `<img src="${champIcon}" alt="${match.championName}">` : ''}
-                </div>
-                <div class="modal-title-group">
-                    <div class="modal-champion-name">${match.championName || 'Unknown'}</div>
-                    <div class="modal-match-info">${queueName} · ${formatDuration(match.gameDuration)} · ${timeAgo(match.gameCreation)}</div>
-                </div>
-                <div class="modal-result-badge ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</div>`;
-
-    const myTeam           = info.participants.filter(p => p.teamId === match.teamId);
-    const enemyTeam        = info.participants.filter(p => p.teamId !== match.teamId);
-    const participantRanks = await getMatchParticipantRanks(match.matchId);
-
-    function renderModalTeam(team, isMyTeam, rankMap) {
-        return team.map(player => {
-            const playerChampIcon = getChampionIcon(player.championName);
-            const role            = player.teamPosition || player.lane || '?';
-            const playerRank      = rankMap[player.puuid];
-            const soloTier        = playerRank?.soloTier || null;
-            const soloDiv         = playerRank?.soloRank  || '';
-            const rankTooltip     = soloTier
-                ? (soloTier.charAt(0) + soloTier.slice(1).toLowerCase() + (MASTER_PLUS.includes(soloTier) ? '' : ' ' + soloDiv))
-                : 'Unranked';
-            const rankBadgeHtml   = soloTier
-                ? `<div class="team-player-rank" title="${rankTooltip}"><img src="assets/ranks/emblem-${soloTier.toLowerCase()}.png" alt="${rankTooltip}" class="rank-emblem-mini"></div>`
-                : `<div class="team-player-rank unranked" title="Unranked"><span class="rank-unranked-dash">-</span></div>`;
-
-            const items = [player.item0, player.item1, player.item2, player.item3, player.item4, player.item5, player.item6];
-            const playerItems = items.map(itemId =>
-                itemId && itemId > 0
-                    ? `<div class="item-slot-small has-item"><img src="${DDRAGON}/img/item/${itemId}.png" alt="Item" onerror="this.style.display='none'"></div>`
-                    : `<div class="item-slot-small"></div>`
-            ).join('');
-
-            return `
-                        <div class="team-player">
-                            ${rankBadgeHtml}
-                            <div class="team-player-champ">
-                                ${playerChampIcon ? `<img src="${playerChampIcon}" alt="${escapeHtml(player.championName)}">` : ''}
-                            </div>
-                            <div class="team-player-info">
-                                <div class="team-player-name">${escapeHtml(player.riotIdGameName || player.summonerName || 'Unknown')}</div>
-                                <div class="team-player-role">${getPositionName(role)}</div>
-                                <div class="team-player-items">${playerItems}</div>
-                            </div>
-                            <div class="team-player-stats">
-                                <span class="team-player-kda">${player.kills}/${player.deaths}/${player.assists}</span>
-                            </div>
-                        </div>`;
-        }).join('');
-    }
-
-    function objScore(myVal, theirVal) {
-        return myVal > theirVal ? 'win' : myVal < theirVal ? 'loss' : '';
-    }
-
-    modalBody.innerHTML = `
-                <div class="modal-section">
-                    <div class="modal-section-title">Team Objectives</div>
-                    <div class="objectives-comparison">
-                        <div class="obj-team-score ${objScore(match.teamDragons, match.enemyDragons)}">${match.teamDragons || 0}</div>
-                        <div class="obj-label"><span class="obj-icon-large">🐉</span><br>Dragons</div>
-                        <div class="obj-team-score ${objScore(match.enemyDragons, match.teamDragons)}">${match.enemyDragons || 0}</div>
-                    </div>
-                    <div class="objectives-comparison">
-                        <div class="obj-team-score ${objScore(match.teamBarons, match.enemyBarons)}">${match.teamBarons || 0}</div>
-                        <div class="obj-label"><span class="obj-icon-large">👾</span><br>Barons</div>
-                        <div class="obj-team-score ${objScore(match.enemyBarons, match.teamBarons)}">${match.enemyBarons || 0}</div>
-                    </div>
-                    <div class="objectives-comparison">
-                        <div class="obj-team-score ${objScore(match.teamRiftHeralds, match.enemyRiftHeralds)}">${match.teamRiftHeralds || 0}</div>
-                        <div class="obj-label"><span class="obj-icon-large">⚔️</span><br>Rift Heralds</div>
-                        <div class="obj-team-score ${objScore(match.enemyRiftHeralds, match.teamRiftHeralds)}">${match.enemyRiftHeralds || 0}</div>
-                    </div>
-                    <div class="objectives-comparison">
-                        <div class="obj-team-score ${objScore(match.teamTowers, match.enemyTowers)}">${match.teamTowers || 0}</div>
-                        <div class="obj-label"><span class="obj-icon-large">🏰</span><br>Towers</div>
-                        <div class="obj-team-score ${objScore(match.enemyTowers, match.teamTowers)}">${match.enemyTowers || 0}</div>
-                    </div>
-                    <div class="objectives-comparison">
-                        <div class="obj-team-score ${objScore(match.teamInhibitors, match.enemyInhibitors)}">${match.teamInhibitors || 0}</div>
-                        <div class="obj-label"><span class="obj-icon-large">💥</span><br>Inhibitors</div>
-                        <div class="obj-team-score ${objScore(match.enemyInhibitors, match.teamInhibitors)}">${match.enemyInhibitors || 0}</div>
-                    </div>
-                </div>
-
-                <div class="modal-section">
-                    <div class="modal-section-title">Teams</div>
-                    <div class="teams-container">
-                        <div class="team-column ${myTeam[0].win ? 'victory' : 'defeat'}">
-                            <div class="team-header"><div class="team-title">${myTeam[0].win ? 'Victory' : 'Defeat'} - Your Team</div></div>
-                            ${renderModalTeam(myTeam, true, participantRanks)}
-                        </div>
-                        <div class="team-column ${enemyTeam[0].win ? 'victory' : 'defeat'}">
-                            <div class="team-header"><div class="team-title">${enemyTeam[0].win ? 'Victory' : 'Defeat'} - Enemy Team</div></div>
-                            ${renderModalTeam(enemyTeam, false, participantRanks)}
-                        </div>
-                    </div>
-                </div>
-
-                <div class="modal-section">
-                    <div class="modal-section-title">Your Performance</div>
-                    <div class="modal-stats-grid">
-                        <div class="modal-stat-card"><div class="modal-stat-value highlight">${match.kills}/${match.deaths}/${match.assists}</div><div class="modal-stat-label">K / D / A</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value highlight">${kda}</div><div class="modal-stat-label">KDA Ratio</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${formatDamage(match.totalDamageDealtToChampions)}</div><div class="modal-stat-label">Damage</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${match.champLevel || 0}</div><div class="modal-stat-label">Level</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${match.totalMinionsKilled || 0}</div><div class="modal-stat-label">CS</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${((match.totalMinionsKilled || 0) / (match.gameDuration / 60)).toFixed(1)}</div><div class="modal-stat-label">CS/Min</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${(match.goldEarned / 1000).toFixed(1)}k</div><div class="modal-stat-label">Gold</div></div>
-                        <div class="modal-stat-card"><div class="modal-stat-value">${match.visionScore || 0}</div><div class="modal-stat-label">Vision</div></div>
-                    </div>
-                </div>
-
-                ${match.pentaKills || match.quadraKills || match.tripleKills || match.doubleKills ? `
-                <div class="modal-section">
-                    <div class="modal-section-title">Multi-Kills</div>
-                    <div class="modal-badges">
-                        ${match.pentaKills  > 0 ? `<div class="modal-badge penta">🔥 ${match.pentaKills}  Penta Kill${match.pentaKills  > 1 ? 's' : ''}</div>` : ''}
-                        ${match.quadraKills > 0 ? `<div class="modal-badge quadra">⚡ ${match.quadraKills} Quadra Kill${match.quadraKills > 1 ? 's' : ''}</div>` : ''}
-                        ${match.tripleKills > 0 ? `<div class="modal-badge triple">💫 ${match.tripleKills} Triple Kill${match.tripleKills > 1 ? 's' : ''}</div>` : ''}
-                        ${match.doubleKills > 0 ? `<div class="modal-badge double">⭐ ${match.doubleKills} Double Kill${match.doubleKills > 1 ? 's' : ''}</div>` : ''}
-                    </div>
-                </div>` : ''}
-
-                <div class="modal-section">
-                    <div class="modal-section-title">Final Build</div>
-                    <div class="modal-items-grid">${renderModalItems(match)}</div>
-                </div>`;
-
-    modal.classList.add('visible');
-};
-
-window.closeModal = function () {
-    document.getElementById('matchModal').classList.remove('visible');
-};
-
-window.closeModalOnBackdrop = function (event) {
-    if (event.target.id === 'matchModal') window.closeModal();
 };
 
 module.exports = {};

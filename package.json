@@ -6,11 +6,14 @@
   "scripts": {
     "start": "electron .",
     "build": "electron-builder",
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "parity": "node scripts/parity-check.js",
+    "diagnose": "node scripts/diagnose-sync.js",
+    "cleanup": "node scripts/cleanup-matches.js",
+    "coaching": "node scripts/coaching-report.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
-    "dotenv": "^16.3.1",
     "sqlite3": "^5.0.2"
   },
   "devDependencies": {
@@ -36,11 +39,15 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "icon": "src/assets/icon.ico"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Nexus Insights"
     }
   }
 }

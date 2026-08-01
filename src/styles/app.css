@@ -1,4 +1,11 @@
 :root {
+    /* Height of the custom title bar (window is frameless) */
+    --titlebar-height: 32px;
+
+    /* Width of the off-canvas left nav drawer. The arrow tab translates by
+       exactly this amount when open, so the two stay glued together. */
+    --nav-drawer-width: 232px;
+
     /* Color System */
     --bg-primary: rgb(18, 18, 22);
     --bg-card: rgba(255, 255, 255, 0.06);
@@ -127,22 +134,123 @@ select:focus-visible {
     }
 }
 
+/* ══════════════════════════════════════════════════════════
+   CUSTOM TITLE BAR (window is frameless — see main.js)
+══════════════════════════════════════════════════════════ */
+.titlebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--titlebar-height);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-left: 14px;
+    background: transparent;
+    z-index: 9000;
+    /* Whole strip drags the window */
+    -webkit-app-region: drag;
+    user-select: none;
+}
+
+/* App name, left of the drag strip — this replaces the large gradient header
+   that used to sit above the nav tabs. */
+.titlebar-brand {
+    font-size: 12.5px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    background: linear-gradient(135deg, var(--gold) 0%, var(--gold-light) 50%, var(--gold) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    white-space: nowrap;
+    pointer-events: none;  /* never blocks the drag region */
+}
+
+.titlebar-drag {
+    flex: 1;
+    height: 100%;
+}
+
+.titlebar-controls {
+    display: flex;
+    height: 100%;
+    /* Buttons must opt OUT of the drag region or they can't be clicked */
+    -webkit-app-region: no-drag;
+}
+
+.titlebar-btn {
+    width: 46px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    color: rgba(255, 255, 255, 0.55);
+    transition: background 0.15s ease, color 0.15s ease;
+}
+
+.titlebar-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+}
+
+.titlebar-btn:active {
+    background: rgba(255, 255, 255, 0.13);
+}
+
+.titlebar-btn--close:hover {
+    background: #e81123;
+    color: #fff;
+}
+
+/* Settings gear, moved into the title bar next to the window controls */
+.titlebar-btn--settings {
+    font-size: 15px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+.titlebar-btn--settings:hover {
+    color: #fff;
+    transform: rotate(45deg);
+}
+
+/* Swap the maximise glyph for a restore glyph while maximised */
+.titlebar-btn .icon-restore { display: none; }
+body.window-maximized .titlebar-btn .icon-maximize { display: none; }
+body.window-maximized .titlebar-btn .icon-restore  { display: block; }
+
 /* Main container */
 .app-container {
     position: relative;
     z-index: 1;
     max-width: 95%;
     margin: 0 auto;
-    padding: 40px 20px;
+    /* The header is gone (app name lives in the title bar) and the section
+       tabs moved into the off-canvas left drawer, so content starts right
+       under the title bar. Left padding clears the 26px arrow tab. */
+    padding: calc(var(--titlebar-height) + 10px) 20px 40px 34px;
 }
 
-/* Header */
+/* Header — the centred logo. The settings gear and window buttons live in the
+   title bar, so the logo is free to sit high and stay vertically balanced:
+   the gap above it (app-container top padding) equals the gap below it. */
 .header {
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-    margin-bottom: 16px;
-    padding: 4px 0;
+    margin-bottom: 12px;
+    padding: 0;
+    /* Draggable, so the window moves by its title area too */
+    -webkit-app-region: drag;
+}
+
+.header .logo {
+    -webkit-app-region: no-drag;
 }
 
 .header-spacer {
@@ -235,13 +343,21 @@ select:focus-visible {
     align-items: flex-end;
 }
 
+/* The name field used to be flex:1 and ate the whole row. It only ever holds
+   a summoner name, so it's capped via max-width rather than a hard basis —
+   it still flexes with the row, it just can't run away with it. The reclaimed
+   width carries the game-mode filters that now share this line. */
 .input-wrapper {
-    flex: 1;
+    flex: 1 1 150px;
+    max-width: 230px;
+    min-width: 110px;
     position: relative;
 }
 
 .input-wrapper.tag-input {
-    flex: 0 0 120px;
+    flex: 0 1 100px;
+    max-width: 100px;
+    min-width: 68px;
 }
 
 .input-label {
@@ -638,7 +754,6 @@ select:focus-visible {
     background-clip: text;
 }
 
-
 /* Footer */
 .footer {
     text-align: center;
@@ -701,26 +816,15 @@ select:focus-visible {
 }
 
 /* Filter section */
-.filter-section {
+/* Game-mode filters, inline on the summoner row. No card chrome of its own —
+   it's already inside .main-card — and no visible label; the checkboxes read
+   for themselves and the ~90px bought goes to the controls. */
+.filter-inline {
     display: flex;
     align-items: center;
-    gap: 16px;
-    margin-bottom: 14px;
-    padding: 14px 16px;
-    background: var(--bg-card);
-    border-radius: var(--radius-md);
-    border: 1px solid var(--border-primary);
-    flex-wrap: wrap;
-    transition: all 0.3s var(--transition-smooth);
-}
-
-.filter-label {
-    font-size: 11px;
-    font-weight: 700;
-    color: rgba(255, 255, 255, 0.4);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    white-space: nowrap;
+    gap: 10px;
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .filter-options {
@@ -886,65 +990,7 @@ select:focus-visible {
 
 .match-list::-webkit-scrollbar-thumb:hover {
     background: rgba(0, 207, 188, 0.5);
-}
-
-.match-card {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 18px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-primary);
-    border-radius: var(--radius-md);
-    transition: all 0.3s var(--transition-smooth);
-    cursor: pointer;
-    position: relative;
-    scroll-snap-align: start;
-}
-
-.match-card::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-md);
-    background: linear-gradient(135deg, rgba(0, 207, 188, 0.05), transparent);
-    opacity: 0;
-    transition: opacity 0.3s var(--transition-smooth);
-    pointer-events: none;
-}
-
-/* Win/Loss Streak Indicators */
-.match-card::after {
-    content: attr(data-streak);
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    padding: 4px 10px;
-    border-radius: 12px;
-    font-size: 10px;
-    font-weight: 700;
-    opacity: 0;
-    transition: opacity 0.3s var(--transition-smooth);
-    pointer-events: none;
-}
-
-.match-card.win-streak::after {
-    background: linear-gradient(135deg, rgba(34, 197, 94, 0.3), rgba(34, 197, 94, 0.15));
-    color: #22c55e;
-    border: 1px solid rgba(34, 197, 94, 0.4);
-    opacity: 1;
-    animation: fireGlow 2s ease-in-out infinite;
-}
-
-.match-card.loss-streak::after {
-    background: linear-gradient(135deg, rgba(59, 130, 246, 0.3), rgba(59, 130, 246, 0.15));
-    color: #3b82f6;
-    border: 1px solid rgba(59, 130, 246, 0.4);
-    opacity: 1;
-    animation: iceGlow 2s ease-in-out infinite;
-}
-
-@keyframes fireGlow {
+}/* Win/Loss Streak Indicators */@keyframes fireGlow {
 
     0%,
     100% {
@@ -966,132 +1012,7 @@ select:focus-visible {
     50% {
         box-shadow: 0 0 20px rgba(59, 130, 246, 0.6);
     }
-}
-
-.match-card:hover {
-    background: var(--bg-card-hover);
-    border-color: var(--border-hover);
-    transform: translateX(6px) scale(1.005);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3),
-        0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-.match-card:hover::before {
-    opacity: 1;
-}
-
-.match-card.win {
-    border-left: 3px solid #22c55e;
-}
-
-.match-card.loss {
-    border-left: 3px solid #ef4444;
-}
-
-.match-champion {
-    width: 48px;
-    height: 48px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #2a2a3e 0%, #1a1a2e 100%);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 20px;
-    font-weight: 700;
-    color: #00cfbc;
-    flex-shrink: 0;
-    overflow: hidden;
-}
-
-.match-champion img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.match-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.match-primary {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
-}
-
-.match-champion-name {
-    font-size: 14px;
-    font-weight: 600;
-    color: #ffffff;
-}
-
-.match-result {
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    text-transform: uppercase;
-}
-
-.match-result.win {
-    background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
-}
-
-.match-result.loss {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
-.match-secondary {
-    font-size: 12px;
-    color: #6b6b7b;
-}
-
-.match-stats {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    flex-shrink: 0;
-}
-
-.match-kda {
-    text-align: center;
-}
-
-.kda-value {
-    font-size: 16px;
-    font-weight: 700;
-    color: #ffffff;
-}
-
-.kda-label {
-    font-size: 10px;
-    color: #6b6b7b;
-    text-transform: uppercase;
-}
-
-.match-stat-item {
-    text-align: center;
-    min-width: 45px;
-}
-
-.stat-item-value {
-    font-size: 13px;
-    font-weight: 600;
-    color: #8a8a9a;
-}
-
-.stat-item-label {
-    font-size: 9px;
-    color: #5b5b6b;
-    text-transform: uppercase;
-    letter-spacing: 0.3px;
-}
-
-.match-duration {
+}.match-duration {
     text-align: center;
     min-width: 50px;
 }
@@ -1100,277 +1021,7 @@ select:focus-visible {
     font-size: 13px;
     font-weight: 600;
     color: #8a8a9a;
-}
-
-.match-time {
-    text-align: right;
-    min-width: 70px;
-}
-
-.time-value {
-    font-size: 11px;
-    color: #6b6b7b;
-}
-
-.multi-kills {
-    display: flex;
-    gap: 4px;
-    margin-top: 2px;
-}
-
-.multi-kill-badge {
-    font-size: 9px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    cursor: help;
-    position: relative;
-}
-
-.multi-kill-badge::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%) translateY(-5px);
-    background: rgba(0, 0, 0, 0.95);
-    backdrop-filter: blur(8px);
-    color: #fff;
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.25s var(--transition-smooth);
-    pointer-events: none;
-    z-index: 100;
-    margin-bottom: 8px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-.multi-kill-badge:hover::before {
-    opacity: 1;
-    visibility: visible;
-    transform: translateX(-50%) translateY(0);
-}
-
-.multi-kill-badge.double {
-    background: rgba(59, 130, 246, 0.2);
-    color: var(--info);
-    border: 1px solid rgba(59, 130, 246, 0.3);
-    transition: all 0.25s var(--transition-smooth);
-}
-
-.multi-kill-badge.double:hover {
-    transform: translateY(-2px) scale(1.05);
-    background: rgba(59, 130, 246, 0.3);
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
-}
-
-.multi-kill-badge.triple {
-    background: rgba(168, 85, 247, 0.2);
-    color: #a855f7;
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    transition: all 0.25s var(--transition-smooth);
-}
-
-.multi-kill-badge.triple:hover {
-    transform: translateY(-2px) scale(1.05);
-    background: rgba(168, 85, 247, 0.3);
-    box-shadow: 0 4px 12px rgba(168, 85, 247, 0.4);
-}
-
-.multi-kill-badge.quadra {
-    background: rgba(249, 115, 22, 0.2);
-    color: var(--warning);
-    border: 1px solid rgba(249, 115, 22, 0.3);
-    transition: all 0.25s var(--transition-smooth);
-}
-
-.multi-kill-badge.quadra:hover {
-    transform: translateY(-2px) scale(1.05);
-    background: rgba(249, 115, 22, 0.3);
-    box-shadow: 0 4px 12px rgba(249, 115, 22, 0.4);
-}
-
-.multi-kill-badge.penta {
-    background: rgba(239, 68, 68, 0.2);
-    color: var(--error);
-    border: 1px solid rgba(239, 68, 68, 0.3);
-    transition: all 0.25s var(--transition-smooth);
-}
-
-.multi-kill-badge.penta:hover {
-    transform: translateY(-2px) scale(1.1);
-    background: rgba(239, 68, 68, 0.3);
-    box-shadow: 0 6px 16px rgba(239, 68, 68, 0.5);
-}
-
-/* Position badge */
-.position-badge {
-    font-size: 10px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.1);
-    color: #8a8a9a;
-    margin-left: 6px;
-}
-
-.position-badge.TOP {
-    background: rgba(139, 92, 246, 0.2);
-    color: #8b5cf6;
-}
-
-.position-badge.JUNGLE {
-    background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
-}
-
-.position-badge.MIDDLE {
-    background: rgba(59, 130, 246, 0.2);
-    color: #3b82f6;
-}
-
-.position-badge.BOTTOM {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
-.position-badge.UTILITY {
-    background: rgba(249, 115, 22, 0.2);
-    color: #f97316;
-}
-
-/* Objective badges (similar to multi-kill badges) */
-.objective-badge {
-    font-size: 9px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    text-transform: uppercase;
-    cursor: help;
-    position: relative;
-}
-
-.objective-badge::before {
-    content: attr(data-tooltip);
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.9);
-    color: #fff;
-    padding: 6px 10px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 500;
-    white-space: nowrap;
-    opacity: 0;
-    visibility: hidden;
-    transition: all 0.2s ease;
-    pointer-events: none;
-    z-index: 100;
-    margin-bottom: 6px;
-}
-
-.objective-badge:hover::before {
-    opacity: 1;
-    visibility: visible;
-}
-
-.objective-badge.dragon {
-    background: rgba(249, 115, 22, 0.2);
-    color: #f97316;
-}
-
-.objective-badge.baron {
-    background: rgba(168, 85, 247, 0.2);
-    color: #a855f7;
-}
-
-.objective-badge.herald {
-    background: rgba(100, 116, 139, 0.2);
-    color: #94a3b8;
-}
-
-.objective-badge.tower {
-    background: rgba(59, 130, 246, 0.2);
-    color: #3b82f6;
-}
-
-.objective-badge.inhibitor {
-    background: rgba(236, 72, 153, 0.2);
-    color: #ec4899;
-}
-
-/* Items display */
-.match-items {
-    display: flex;
-    gap: 2px;
-    margin-top: 4px;
-}
-
-.item-slot {
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 8px;
-    color: #4a4a5a;
-    overflow: hidden;
-}
-
-.item-slot img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.item-slot.has-item {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.2);
-}
-
-/* Small item slots for team player display */
-.team-player-items {
-    display: flex;
-    gap: 2px;
-    margin-top: 4px;
-}
-
-.item-slot-small {
-    width: 20px;
-    height: 20px;
-    border-radius: 3px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-}
-
-.item-slot-small img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.item-slot-small.has-item {
-    background: transparent;
-    border-color: rgba(255, 255, 255, 0.2);
-}
-
-/* Objectives mini stats */
+}/* Position badge *//* Objective badges (similar to multi-kill badges) *//* Items display *//* Small item slots for team player display *//* Objectives mini stats */
 .objectives-row {
     display: flex;
     gap: 8px;
@@ -1766,15 +1417,7 @@ select:focus-visible {
     font-weight: 600;
 }
 
-
-/* Team Composition Styles */
-.teams-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 24px;
-}
-
-.team-section {
+/* Team Composition Styles */.team-section {
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
     overflow: hidden;
@@ -1870,14 +1513,7 @@ select:focus-visible {
     height: 32px;
     border-radius: 50%;
     border: 2px solid rgba(255, 255, 255, 0.2);
-}
-
-.team-player-name {
-    font-weight: 500;
-    color: #fff;
-}
-
-.team-items-cell {
+}.team-items-cell {
     padding: 6px 8px !important;
 }
 
@@ -1935,7 +1571,6 @@ select:focus-visible {
     border-radius: 50%;
 }
 
-
 .team-stat {
     color: #d1d5db;
     font-weight: 500;
@@ -1956,7 +1591,6 @@ select:focus-visible {
     color: #9ca3af;
     font-size: 12px;
 }
-
 
 .table-outcome-badge {
     font-size: 9px;
@@ -2000,7 +1634,6 @@ select:focus-visible {
     font-size: 10px;
     color: #6b6b7b;
 }
-
 
 /* ===== Modal Styles ===== */
 .modal-overlay {
@@ -2046,65 +1679,7 @@ select:focus-visible {
 .modal-overlay.visible .modal-content {
     transform: scale(1);
     opacity: 1;
-}
-
-.modal-header {
-    padding: 24px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    display: flex;
-    align-items: center;
-    gap: 16px;
-}
-
-.modal-champion-icon {
-    width: 64px;
-    height: 64px;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 2px solid rgba(255, 255, 255, 0.1);
-}
-
-.modal-champion-icon img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.modal-title-group {
-    flex: 1;
-}
-
-.modal-champion-name {
-    font-size: 22px;
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 4px;
-}
-
-.modal-match-info {
-    font-size: 14px;
-    color: #8a8a9a;
-}
-
-.modal-result-badge {
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 700;
-    text-transform: uppercase;
-}
-
-.modal-result-badge.win {
-    background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
-}
-
-.modal-result-badge.loss {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
-.modal-close {
+}.modal-close {
     position: absolute;
     top: 20px;
     right: 20px;
@@ -2128,143 +1703,7 @@ select:focus-visible {
     border-color: rgba(239, 68, 68, 0.3);
     color: var(--error);
     transform: rotate(90deg) scale(1.1);
-}
-
-.modal-body {
-    padding: 24px;
-}
-
-.modal-section {
-    margin-bottom: 24px;
-}
-
-.modal-section:last-child {
-    margin-bottom: 0;
-}
-
-.modal-section-title {
-    font-size: 12px;
-    font-weight: 700;
-    color: #6b6b7b;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin-bottom: 12px;
-}
-
-.modal-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 12px;
-}
-
-.modal-stat-card {
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    border-radius: 10px;
-    padding: 14px;
-    text-align: center;
-}
-
-.modal-stat-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 2px;
-}
-
-.modal-stat-value.highlight {
-    color: #00cfbc;
-}
-
-.modal-stat-label {
-    font-size: 10px;
-    color: #6b6b7b;
-    text-transform: uppercase;
-}
-
-.modal-items-grid {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.modal-item {
-    width: 48px;
-    height: 48px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    overflow: hidden;
-}
-
-.modal-item img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.modal-badges {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-}
-
-.modal-badge {
-    padding: 6px 12px;
-    border-radius: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    background: rgba(255, 255, 255, 0.05);
-    color: #8a8a9a;
-}
-
-.modal-badge.dragons {
-    background: rgba(249, 115, 22, 0.15);
-    color: #f97316;
-}
-
-.modal-badge.barons {
-    background: rgba(168, 85, 247, 0.15);
-    color: #a855f7;
-}
-
-.modal-badge.towers {
-    background: rgba(59, 130, 246, 0.15);
-    color: #3b82f6;
-}
-
-.modal-badge.inhibs {
-    background: rgba(236, 72, 153, 0.15);
-    color: #ec4899;
-}
-
-.modal-badge.steals {
-    background: rgba(239, 68, 68, 0.15);
-    color: #ef4444;
-}
-
-/* Team display styles */
-.teams-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-}
-
-.team-column {
-    background: rgba(255, 255, 255, 0.02);
-    border-radius: 12px;
-    padding: 16px;
-}
-
-.team-column.victory {
-    border: 1px solid rgba(34, 197, 94, 0.3);
-}
-
-.team-column.defeat {
-    border: 1px solid rgba(239, 68, 68, 0.3);
-}
-
-.team-header {
+}/* Team display styles */.team-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -2278,146 +1717,7 @@ select:focus-visible {
     font-weight: 700;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-}
-
-.team-column.victory .team-title {
-    color: #22c55e;
-}
-
-.team-column.defeat .team-title {
-    color: #ef4444;
-}
-
-.team-player {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 8px;
-    border-radius: 8px;
-    margin-bottom: 6px;
-    background: rgba(255, 255, 255, 0.02);
-    transition: all 0.2s ease;
-}
-
-.team-player:hover {
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.team-player.me {
-    background: rgba(0, 207, 188, 0.1);
-    border: 1px solid rgba(0, 207, 188, 0.3);
-}
-
-.team-player-champ {
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    overflow: hidden;
-    flex-shrink: 0;
-    background: rgba(255, 255, 255, 0.05);
-}
-
-.team-player-champ img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.team-player-info {
-    flex: 1;
-    min-width: 0;
-}
-
-.team-player-name {
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.team-player-role {
-    font-size: 10px;
-    color: #6b6b7b;
-    text-transform: uppercase;
-}
-
-.team-player-stats {
-    display: flex;
-    gap: 8px;
-    font-size: 11px;
-    flex-shrink: 0;
-}
-
-.team-player-kda {
-    font-weight: 600;
-    color: #8a8a9a;
-}
-
-.team-player-rank {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    cursor: default;
-}
-
-.rank-emblem-mini {
-    width: 22px;
-    height: 22px;
-    object-fit: contain;
-}
-
-.team-player-rank.unranked {
-    color: #4a4a5a;
-    font-size: 14px;
-}
-
-.rank-unranked-dash {
-    font-weight: 300;
-    opacity: 0.4;
-}
-
-.objectives-comparison {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr;
-    gap: 12px;
-    align-items: center;
-    padding: 12px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 10px;
-    margin-bottom: 8px;
-}
-
-.obj-team-score {
-    text-align: center;
-    font-size: 18px;
-    font-weight: 700;
-}
-
-.obj-team-score.win {
-    color: #22c55e;
-}
-
-.obj-team-score.loss {
-    color: #ef4444;
-}
-
-.obj-label {
-    font-size: 12px;
-    color: #8a8a9a;
-    text-align: center;
-    font-weight: 600;
-}
-
-.obj-icon-large {
-    font-size: 20px;
-}
-
-/* Toast Notification */
+}/* Toast Notification */
 .toast-notification {
     position: fixed;
     top: 24px;
@@ -2601,7 +1901,6 @@ select:focus-visible {
     text-shadow: 0 0 6px currentColor;
 }
 
-
 /* Sub-section header (e.g. Developing row inside stats block) */
 .advanced-section-header {
     margin-top: 20px;
@@ -2668,21 +1967,6 @@ select:focus-visible {
 }
 
 /* Item Tooltip Formatting */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /* Item tooltip styling */
 .item-stats {
@@ -2819,51 +2103,7 @@ select:focus-visible {
 .unified-stat-card.has-trend {
     position: relative;
     padding-right: 45px;
-}
-
-.stat-trend-indicator {
-    position: absolute;
-    right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
-    min-width: 32px;
-}
-
-.stat-trend-indicator .trend-arrow {
-    font-size: 16px;
-    font-weight: 700;
-    line-height: 1;
-}
-
-.stat-trend-indicator .trend-percent {
-    font-size: 10px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-}
-
-/* Improvement state - green (up arrow for most, down for isolated deaths) */
-.stat-trend-indicator.improvement .trend-arrow,
-.stat-trend-indicator.improvement .trend-percent {
-    color: #22c55e;
-}
-
-/* Decline state - red (down arrow for most, up for isolated deaths) */
-.stat-trend-indicator.decline .trend-arrow,
-.stat-trend-indicator.decline .trend-percent {
-    color: #ef4444;
-}
-
-/* No change state - yellow dash */
-.stat-trend-indicator.neutral .trend-arrow,
-.stat-trend-indicator.neutral .trend-percent {
-    color: #fbbf24;
-}
-
-/* ===== Setup Modal Styles ===== */
+}/* Improvement state - green (up arrow for most, down for isolated deaths) *//* Decline state - red (down arrow for most, up for isolated deaths) *//* No change state - yellow dash *//* ===== Setup Modal Styles ===== */
 #setupModal {
     z-index: 10000;
 }
@@ -2957,6 +2197,57 @@ select:focus-visible {
 
 .setup-hint a:hover {
     text-decoration: underline;
+}
+
+/* Background-behaviour toggles in the settings modal */
+.setup-toggles {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 18px 0 4px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-primary);
+}
+
+.setup-toggle {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    padding: 9px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.2s var(--transition-smooth);
+}
+
+.setup-toggle:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.setup-toggle input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    margin-top: 2px;
+    cursor: pointer;
+    accent-color: var(--accent-primary);
+}
+
+.setup-toggle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.setup-toggle-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.setup-toggle-hint {
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--text-tertiary);
 }
 
 .setup-error {
@@ -3375,7 +2666,6 @@ select:focus-visible {
     margin-bottom: 8px;
 }
 
-
 /* ─── Time Analytics layout ──────────────────────────── */
 
 /* Outer body: calendar-left | cards-right */
@@ -3394,7 +2684,6 @@ select:focus-visible {
     gap: 12px;
     justify-content: flex-start;
 }
-
 
 /* Two cards side-by-side below calendar */
 .ta-left-bottom {
@@ -3462,6 +2751,28 @@ select:focus-visible {
     flex: 0 0 auto;
 }
 
+/* LP cards: overall height cut by ~a third. The canvas is only part of it —
+   the card's own padding and the label's bottom margin are the rest, so all
+   three shrink together.
+     before:  14+14 padding + ~21 label + 110 canvas  = ~159px
+     after:   10+10 padding + ~17 label +  73 canvas  = ~110px          */
+.ta-card--lp {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+    /* The cards sit in a grid, where `flex` on the item does nothing — grid
+       items stretch by default. This keeps them at their content height. */
+    align-self: start;
+}
+
+.ta-card--lp .insight-mini-label {
+    margin-bottom: 3px;
+}
+
+/* Row of LP cards must not stretch either */
+.ta-right-row {
+    align-items: start;
+}
+
 .time-insights-panel {
     flex: 1;
     min-width: 300px;
@@ -3517,10 +2828,15 @@ select:focus-visible {
 
 .lp-canvas {
     width: 100%;
-    height: 110px;
     display: block;
-    flex: 1;
-    min-height: 90px;
+
+    /* `flex: 1` was the reason earlier height changes did nothing: inside the
+       flex-column card it expands to `flex: 1 1 0%`, so flex-basis 0 replaces
+       the height entirely and the canvas grows to fill whatever room the card
+       has. Pinned to `0 0 auto` the height below is what actually renders. */
+    flex: 0 0 auto;
+    height: 152px;
+    min-height: 0;
 }
 
 .insight-mini-card {
@@ -3732,7 +3048,6 @@ select:focus-visible {
     flex-shrink: 0;
 }
 
-
 .calendar-summary {
     font-size: 13px;
     color: rgba(255, 255, 255, 0.55);
@@ -3778,7 +3093,10 @@ select:focus-visible {
 /* Header: label left, type tag right */
 .std-stat-header {
     display: flex;
-    justify-content: space-between;
+    /* space-between dates from when the aggregation-type chip sat on the
+       right. With the name alone it just pinned the label to the left while
+       the value and rank badge below stayed centred. */
+    justify-content: center;
     align-items: flex-start;
     width: 100%;
     gap: 4px;
@@ -3786,6 +3104,7 @@ select:focus-visible {
 }
 
 .std-stat-label {
+    text-align: center;
     font-size: 11px;
     font-weight: 600;
     color: rgba(255, 255, 255, 0.6);
@@ -3794,16 +3113,9 @@ select:focus-visible {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    max-width: 70%;
-}
-
-.std-stat-type {
-    font-size: 9px;
-    text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.25);
-    letter-spacing: 0.5px;
-    white-space: nowrap;
-    flex-shrink: 0;
+    /* The aggregation-type chip used to sit here and squeeze the name to 70%,
+       truncating labels like "Shutdowns Claimed". The name now gets the row. */
+    max-width: 100%;
 }
 
 /* Big value — row 2 */
@@ -4100,9 +3412,7 @@ select:focus-visible {
     line-height: 1;
 }
 
-
 /* .cal-grid layout applied inline by renderCalendarGrid() */
-
 
 /* .cal-week no longer used â€” grid is flat */
 
@@ -4162,7 +3472,6 @@ select:focus-visible {
 .cal-stat-block .insight-mini-label {
     margin-bottom: 6px;
 }
-
 
 .legend-label {
     font-size: 11px;
@@ -4263,48 +3572,144 @@ select:focus-visible {
 }
 
 /* ============================================================
-   TOP NAVIGATION BAR
+   LEFT NAVIGATION DRAWER
+   Hidden off-canvas; the arrow tab slides it in. It overlays the
+   page instead of pushing it, so the LP canvases and stat cards
+   never re-layout (and never redraw blurry) on toggle.
    ============================================================ */
-.top-nav {
+.nav-arrow {
+    position: fixed;
+    left: 0;
+    top: calc(var(--titlebar-height) + 14px);
+    z-index: 900;
     display: flex;
-    gap: 4px;
-    padding: 0 24px 0;
-    margin-bottom: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.07);
-    background: rgba(0,0,0,0.2);
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 46px;
+    padding: 0;
+    background: rgba(0, 0, 0, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-left: none;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    color: var(--text-secondary);
+    cursor: pointer;
     backdrop-filter: blur(10px);
+    transition: transform 0.28s var(--transition-smooth),
+                color 0.2s var(--transition-smooth),
+                background 0.2s var(--transition-smooth);
 }
 
-.top-nav-btn {
+.nav-arrow:hover {
+    color: var(--accent-primary);
+    background: rgba(0, 207, 188, 0.14);
+}
+
+.nav-arrow svg {
+    transition: transform 0.28s var(--transition-smooth);
+}
+
+/* Open: the tab rides out on the drawer's edge and the chevron flips */
+.nav-arrow.open {
+    transform: translateX(var(--nav-drawer-width));
+}
+
+.nav-arrow.open svg {
+    transform: rotate(180deg);
+}
+
+.nav-backdrop {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: var(--titlebar-height);
+    bottom: 0;
+    z-index: 890;
+    background: rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--transition-smooth);
+}
+
+.nav-backdrop.open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.nav-drawer {
+    position: fixed;
+    left: 0;
+    top: var(--titlebar-height);
+    bottom: 0;
+    z-index: 895;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: var(--nav-drawer-width);
+    padding: 16px 12px;
+    background: rgba(12, 12, 18, 0.92);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 12px 0 32px -12px rgba(0, 0, 0, 0.7);
+    transform: translateX(-100%);
+    transition: transform 0.28s var(--transition-smooth);
+}
+
+.nav-drawer.open {
+    transform: translateX(0);
+}
+
+.nav-drawer-btn {
     position: relative;
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 14px 24px;
+    gap: 10px;
+    width: 100%;
+    padding: 12px 14px;
     background: none;
     border: none;
-    border-bottom: 3px solid transparent;
+    border-left: 3px solid transparent;
+    border-radius: var(--radius-sm);
     color: var(--text-secondary);
     font-family: 'Inter', sans-serif;
     font-size: 0.9rem;
     font-weight: 500;
+    text-align: left;
     cursor: pointer;
     transition: all 0.2s var(--transition-smooth);
-    margin-bottom: -1px;
 }
 
-.top-nav-btn:hover {
+.nav-drawer-btn:hover {
     color: var(--text-primary);
-    background: rgba(255,255,255,0.04);
+    background: rgba(255, 255, 255, 0.05);
 }
 
-.top-nav-btn.active {
+.nav-drawer-btn.active {
     color: var(--accent-primary);
-    border-bottom-color: var(--accent-primary);
+    border-left-color: var(--accent-primary);
+    background: rgba(0, 207, 188, 0.08);
     font-weight: 600;
 }
 
+.nav-drawer-btn .nav-text {
+    flex: 1 1 auto;
+}
+
 .nav-icon { font-size: 1rem; }
+
+/* Visually hidden but still announced by screen readers */
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
 
 .nav-badge {
     display: inline-flex;
@@ -4779,3 +4184,537 @@ select:focus-visible {
     100% { opacity: 0; transform: scale(0.8) translateY(-40px); }
 }
 
+/* ══════════════════════════════════════════════════════════
+   HIDDEN SCROLLBARS
+   Scrolling still works everywhere — wheel, trackpad, keyboard,
+   drag-select. The scrollbar is simply not painted.
+
+   Must live at the end of the file: the per-element scrollbar
+   styles above (.match-list, .match-table-container) are more
+   specific than a bare `*`, so they are repeated here to be
+   overridden by source order.
+══════════════════════════════════════════════════════════ */
+* {
+    scrollbar-width: none;      /* Firefox / standard property */
+    -ms-overflow-style: none;   /* legacy Edge */
+}*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-thumb,
+.match-list::-webkit-scrollbar-thumb,
+.match-table-container::-webkit-scrollbar-thumb {
+    background: transparent !important;
+    border: 0;
+    box-shadow: none;
+}
+
+/* ── "Where is my data" row in the Settings modal ──────────── */
+.setup-datadir {
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+
+.setup-datadir-label {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.4);
+}
+
+.setup-datadir-path {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.65);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    border-radius: 6px;
+    padding: 6px 9px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.setup-datadir-btn {
+    align-self: flex-end;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.7);
+    border-radius: 6px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.setup-datadir-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+/* ── Horizontal scroll hint for the match table ────────────────
+   The table is 22 columns wide and its scrollbar is hidden, so
+   without a cue nothing indicates more columns exist. A soft
+   fade pinned over the right edge reads as "continues past
+   here". It sits on the non-scrolling parent so it stays put
+   while the table scrolls underneath it.
+   ──────────────────────────────────────────────────────────── */
+.match-history {
+    position: relative;
+}
+
+.match-history .match-table-container {
+    position: relative;
+}
+
+.match-history .match-table-container::after {
+    content: '';
+    position: sticky;
+    top: 0;
+    right: 0;
+    float: right;
+    width: 48px;
+    height: 100%;
+    margin-left: -48px;
+    pointer-events: none;
+    background: linear-gradient(
+        to right,
+        rgba(10, 11, 16, 0) 0%,
+        rgba(10, 11, 16, 0.55) 70%,
+        rgba(10, 11, 16, 0.8) 100%
+    );
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+/* ══════════════════════════════════════════════════════════
+   COACHING BOARD (rewritten 2026-08)
+   One focus, a short watch list, evidence collapsed away. The
+   old .coaching-* card styles are superseded by these.
+══════════════════════════════════════════════════════════ */
+.coach-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 22px;
+}
+
+.coach-header h2 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coach-header p {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.coach-dim { color: var(--text-tertiary); font-weight: 400; }
+
+.coach-section-label {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 24px 0 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--accent-primary);
+}
+
+/* ── The one thing ───────────────────────────────────────── */
+.coach-focus {
+    border: 1px solid rgba(0, 207, 188, 0.28);
+    background: rgba(0, 207, 188, 0.04);
+    border-radius: var(--radius-md);
+    padding: 18px 20px;
+}
+
+.coach-focus-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.coach-focus-title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coach-focus-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.coach-focus-gain { text-align: right; flex: 0 0 auto; }
+
+.coach-focus-gain-value {
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--success);
+    line-height: 1.1;
+}
+
+.coach-focus-gain-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    max-width: 90px;
+}
+
+.coach-rule {
+    margin-top: 16px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--radius-sm);
+}
+
+.coach-rule-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+}
+
+.coach-rule-text {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.coach-evidence {
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+}
+
+.coach-evidence b.good, .coach-watch-note.good, .coach-progress-value.good { color: var(--success); }
+.coach-evidence b.bad,  .coach-watch-note.bad,  .coach-progress-value.bad  { color: var(--error); }
+.coach-watch-note.muted { color: var(--text-tertiary); }
+
+/* Shown when the win-rate gap sits inside its own margin of error */
+.coach-caveat {
+    margin-top: 10px;
+    padding: 9px 11px;
+    border-left: 3px solid var(--warning);
+    border-radius: 0;
+    background: rgba(249, 115, 22, 0.08);
+    font-size: 11px;
+    line-height: 1.55;
+    color: var(--text-secondary);
+}
+
+.coach-progress-grid {
+    display: flex;
+    gap: 8px;
+    margin-top: 14px;
+}
+
+.coach-progress-cell {
+    flex: 1;
+    padding: 9px 11px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+}
+
+.coach-progress-label {
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+}
+
+.coach-progress-value {
+    margin-top: 3px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.coach-progress-note {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.coach-focus-actions { margin-top: 16px; }
+
+.coach-btn {
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: inherit;
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all 0.2s var(--transition-smooth);
+}
+
+.coach-btn:hover {
+    background: rgba(0, 207, 188, 0.12);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+.coach-mini-btn {
+    padding: 4px 9px;
+    font-size: 10px;
+    font-family: inherit;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s var(--transition-smooth);
+}
+
+.coach-mini-btn:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+
+/* ── Watch list ──────────────────────────────────────────── */
+.coach-watch { display: flex; flex-direction: column; gap: 4px; }
+
+.coach-watch-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+}
+
+.coach-watch-label { flex: 1; font-size: 13px; color: var(--text-primary); }
+.coach-watch-value { font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+
+.coach-watch-note {
+    font-size: 11px;
+    min-width: 74px;
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* ── Tilt note ───────────────────────────────────────────── */
+.coach-note {
+    margin-top: 18px;
+    padding: 12px 14px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.65;
+    color: var(--text-secondary);
+}
+
+.coach-note.warn {
+    background: rgba(249, 115, 22, 0.08);
+    border-left: 3px solid var(--warning);
+    border-radius: 0;
+}
+
+/* ── Evidence table ──────────────────────────────────────── */
+.coach-reference-head { text-transform: none; letter-spacing: 0; font-size: 11px; }
+
+.coach-reference {
+    overflow: hidden;
+    transition: max-height 0.3s var(--transition-smooth);
+}
+
+.coach-reference.collapsed { max-height: 0; }
+
+.coach-reference-why {
+    font-size: 11px;
+    line-height: 1.6;
+    margin: 0 0 10px;
+}
+
+.coach-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+
+.coach-table td {
+    padding: 7px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+}
+
+.coach-table td.num { text-align: right; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+.coach-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.coach-empty.error { color: var(--error); }
+
+/* ── Per-match LP delta ────────────────────────────────────────
+   Only present for games played while the LP watcher was running;
+   Riot publishes no LP history, so older games show a dash rather
+   than an invented number.
+   ──────────────────────────────────────────────────────────── */
+.lp-delta {
+    display: inline-block;
+    min-width: 34px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.lp-delta--gain {
+    background: rgba(34, 197, 94, 0.14);
+    color: var(--success);
+}
+
+.lp-delta--loss {
+    background: rgba(239, 68, 68, 0.14);
+    color: var(--error);
+}
+
+.lp-delta--flat {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-secondary);
+}
+
+.lp-delta--unknown {
+    background: none;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+/* ── Remake rows ───────────────────────────────────────────────
+   Kept in the match list (they did happen) but excluded from all
+   statistics, so they're dimmed and labelled to explain the gap
+   between "1289 matches" and the numbers on the analytics cards.
+   ──────────────────────────────────────────────────────────── */
+.match-table tr.remake {
+    opacity: 0.45;
+}
+
+.match-table tr.remake:hover {
+    opacity: 0.75;
+}
+
+.remake-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.55);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+}
+
+/* ══════════════════════════════════════════════════════════
+   FILTER BAR — inline on the summoner row
+   It shapes the analytics cards, Time Analytics and the Match
+   History page, so it sits with the data it affects rather
+   than buried at the top of the match list. Sharing the row
+   with the summoner fields buys back a whole band of vertical
+   space; the name input is capped so there's room.
+══════════════════════════════════════════════════════════ */
+#filterSection {
+    box-sizing: border-box;
+    flex-wrap: nowrap;
+}
+
+/* The checkboxes are the elastic part of the row: `flex: 1 1 0` gives them an
+   equal share of whatever the fixed controls leave over, so they spread across
+   the width instead of bunching against the sync button. */
+#filterSection .filter-options {
+    flex: 1 1 auto;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+#filterSection .filter-options .filter-checkbox {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    white-space: nowrap;
+    padding: 10px 8px;
+}
+
+/* Clear button and champion dropdown keep their natural size at the end */
+#filterSection .filter-options .filter-clear-btn {
+    flex: 0 0 auto;
+    padding: 10px 14px;
+}
+
+#filterSection .champ-filter-wrapper {
+    flex: 0 1 170px;
+    min-width: 120px;
+    margin-left: 0;
+}
+
+#filterSection .champ-filter-wrapper select {
+    width: 100%;
+    max-width: none;
+    padding-top: 10px;
+    padding-bottom: 10px;
+}
+
+/* Narrow windows: let the filters drop to their own line rather than
+   crushing the summoner fields. */
+@media (max-width: 1250px) {
+    .input-group { flex-wrap: wrap; }
+    #filterSection {
+        flex: 1 0 100%;
+        margin-top: 12px;
+    }
+    #filterSection .filter-options { flex-wrap: wrap; }
+    #filterSection .champ-filter-wrapper { margin-left: auto; }
+}
+
+/* ── Match-count pill on the Match History nav button ──────── */
+.nav-count {
+    display: inline-block;
+    margin-left: 8px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.5;
+}
+
+.nav-drawer-btn.active .nav-count {
+    background: rgba(0, 207, 188, 0.18);
+    color: var(--accent-primary, #00cfbc);
+}
+
+/* The Match History page has no card header of its own above the table */
+#history-tab .main-card {
+    padding-top: 20px;
+}
+
+/* Sync progress detail counters (was inline styles in index.html) */
+.progress-details {
+    margin-top: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+    text-align: center;
+}
+
+.progress-detail-new      { color: #4ade80; }
+.progress-detail-filtered { color: #fb923c; }
+.progress-detail-existing { color: #60a5fa; }

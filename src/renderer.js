@@ -1,31 +1,35 @@
 // ============================================================
 // IMPORTS — services (browser context, Node via nodeIntegration)
 // ============================================================
+const { ipcRenderer } = window.require('electron');
 const { getPuuidByRiotId } = window.require('./services/riotApi');
+const { getLiveGame, testConnection } = window.require('./services/liveClient');
 const {
     getMatches, getStats, getMatchById, getLeagueData,
     saveLpSnapshot, getMatchParticipantRanks,
-    loadRawJson, clearJsonCache
+    loadRawJson, clearJsonCache, backfillComputedStats,
+    recordLpReading, attachLpReadingsToMatches, getLpDeltasByMatch
 } = window.require('./services/matchService');
 const {
     renderMatchTable, renderMatchRows, getRankedStats
 } = window.require('./components/tableRenderer');
 const { loadGameData, getDDragonBase } = window.require('./services/dataDragon');
-const { loadConfig, saveConfig, isConfigValid } = window.require('./services/config');
+const { loadConfig, saveConfig, isConfigValid, userDataPath } = window.require('./services/config');
 
 // ============================================================
 // IMPORTS — UI component modules (self-register window.* as side-effects)
 // ============================================================
 window.require('./components/analyticsEngine');
-window.require('./components/matchModal');    // registers openMatchModal, closeModal, toggleRowExpand
+window.require('./components/matchModal');    // registers toggleRowExpand (expanded 10-player rows)
 window.require('./components/syncPanel');     // registers handleSync
 window.require('./components/calendarPanel'); // registers initCalendar, renderLpCharts, calculateTimeInsights, toggleCalPicker
 window.require('./components/filtersPanel'); // registers applyFilters, toggleAllFilters, clearGameModeFilters
 window.require('./components/coachingPanel'); // registers renderCoachingPanel
+window.require('./components/windowControls'); // registers initWindowControls
 
 // Destructure named exports needed inside renderer.js itself
 const {
-    renderRunes, renderSummonerSpells, timeAgo, formatDamage, getChampionIcon
+    renderRunes, renderSummonerSpells, formatDamage, getChampionIcon
 } = window.require('./components/matchCard');
 const { initTooltips }              = window.require('./components/tooltipSystem');
 const {
@@ -36,6 +40,22 @@ const {
 // SHARED GLOBAL STATE  (window.* so component files can read/write them)
 // ============================================================
 window.matchesData         = [];
+
+/**
+ * Remakes (games abandoned in the first few minutes because someone didn't
+ * connect) are real rows worth seeing in match history, but they are noise in
+ * every average: 0/0/0 KDA, no CS, no damage, and Riot still marks one side as
+ * the winner. They are excluded from all statistics.
+ *
+ * Uses the stored flag (Riot's own gameEndedInEarlySurrender) and falls back to
+ * duration for rows that predate the column.
+ */
+window.REMAKE_MAX_SECONDS = 300;
+window.isRemake = function (m) {
+    if (m.isRemake !== null && m.isRemake !== undefined) return m.isRemake === 1;
+    return (m.gameDuration || 0) < window.REMAKE_MAX_SECONDS;
+};
+window.excludeRemakes = (list) => (list || []).filter(m => !window.isRemake(m));
 window.DDRAGON_BASE        = 'https://ddragon.leagueoflegends.com/cdn/25.S1.1';
 window.QUEUE_NAMES         = {
     420: 'Ranked Solo',  440: 'Ranked Flex',
@@ -95,7 +115,18 @@ function showSetupModal(isFirstTime = true) {
     document.getElementById('setupTagLine').value  = config.tagLine  || '';
     document.getElementById('setupRegion').value   = config.region   || 'europe';
     document.getElementById('setupPlatform').value = config.platform || 'euw1';
+    // Both default on for a config saved before these settings existed
+    document.getElementById('setupAutoLogGames').checked = config.autoLogGames !== false;
+    document.getElementById('setupCloseToTray').checked  = config.closeToTray  !== false;
+    document.getElementById('setupStartOnLogin').checked = config.startOnLogin !== false;
     document.getElementById('setupError').style.display = 'none';
+
+    const dataDirEl = document.getElementById('dataDirPath');
+    if (dataDirEl) {
+        dataDirEl.textContent = userDataPath;
+        dataDirEl.title       = userDataPath;
+    }
+
     modal.classList.add('visible');
 }
 
@@ -110,6 +141,21 @@ function openSettings() {
 window.hideSetupModal = hideSetupModal;
 window.openSettings   = openSettings;
 
+/**
+ * The database and config.json live in the OS's per-user app-data directory,
+ * not next to the source — that's where Windows expects them, and keeping a
+ * live SQLite file out of a cloud-synced folder avoids sync corruption.
+ * This just makes the location easy to find.
+ */
+window.openDataFolder = function () {
+    try {
+        window.require('electron').shell.openPath(userDataPath);
+    } catch (err) {
+        console.warn('Could not open data folder:', err);
+        showToast('Error', 'Could not open the data folder');
+    }
+};
+
 window.saveSetup = function () {
     const apiKey   = document.getElementById('setupApiKey').value.trim();
     const gameName = document.getElementById('setupGameName').value.trim();
@@ -117,6 +163,10 @@ window.saveSetup = function () {
     const region   = document.getElementById('setupRegion').value;
     const platform = document.getElementById('setupPlatform').value;
     const errorEl  = document.getElementById('setupError');
+
+    const closeToTray  = document.getElementById('setupCloseToTray').checked;
+    const startOnLogin = document.getElementById('setupStartOnLogin').checked;
+    const autoLogGames = document.getElementById('setupAutoLogGames').checked;
 
     if (!apiKey) {
         errorEl.textContent  = 'API Key is required. Get one from developer.riotgames.com';
@@ -129,7 +179,16 @@ window.saveSetup = function () {
         return;
     }
 
-    if (saveConfig({ apiKey, gameName, tagLine, region, platform })) {
+    if (saveConfig({ apiKey, gameName, tagLine, region, platform, closeToTray, startOnLogin, autoLogGames })) {
+        // The login-item registration lives in the OS, so only the main
+        // process can apply it — tell it the new values took effect.
+        try {
+            ipcRenderer.send('settings:background', { closeToTray, startOnLogin });
+        } catch (e) { console.warn('Could not update background settings:', e.message); }
+
+        // Pick up an autoLogGames change without needing a restart
+        if (typeof window.restartLpWatcher === 'function') window.restartLpWatcher();
+
         hideSetupModal();
         document.getElementById('gameName').value = gameName;
         document.getElementById('tagLine').value  = tagLine;
@@ -155,7 +214,8 @@ function checkConfigOnStartup() {
 // RANKED STATS DISPLAY (fallback from DB stats if API fails)
 // ============================================================
 function displayRankedStats(allMatches) {
-    const rankedStats = getRankedStats(allMatches);
+    // Remakes count as neither a win nor a loss
+    const rankedStats = getRankedStats(window.excludeRemakes(allMatches));
     const soloStats   = rankedStats.solo;
     const flexStats   = rankedStats.flex;
 
@@ -174,6 +234,19 @@ function displayRankedStats(allMatches) {
 // ============================================================
 // RANK DATA — fetch from Riot API and update rank cards
 // ============================================================
+// PUUID never changes for a given Riot ID, so resolving it once saves the
+// watcher an API call on every poll.
+let cachedPuuid = null;
+let cachedPuuidFor = '';
+
+async function resolvePuuid(name, tag) {
+    const key = `${name}#${tag}`.toLowerCase();
+    if (cachedPuuid && cachedPuuidFor === key) return cachedPuuid;
+    cachedPuuid    = await getPuuidByRiotId(name, tag);
+    cachedPuuidFor = key;
+    return cachedPuuid;
+}
+
 window.fetchAndDisplayRankData = async function () {
     try {
         const config = loadConfig();
@@ -181,7 +254,7 @@ window.fetchAndDisplayRankData = async function () {
         const tag    = document.getElementById('tagLine').value.trim()  || config.tagLine;
         if (!name || !tag) return;
 
-        const puuid      = await getPuuidByRiotId(name, tag);
+        const puuid      = await resolvePuuid(name, tag);
         const leagueData = await getLeagueData(puuid);
 
         if (leagueData.solo) {
@@ -217,6 +290,219 @@ window.fetchAndDisplayRankData = async function () {
     } catch (err) {
         console.error('Failed to fetch rank data:', err.message);
     }
+};
+
+
+// ============================================================
+// LP WATCHER — background polling for per-match LP
+// ============================================================
+/**
+ * Riot only ever reports your *current* LP — never a history, never a
+ * per-game figure. So the only way to know what a single game was worth is to
+ * read LP shortly before it and shortly after it.
+ *
+ * The League client's Live Client Data API (127.0.0.1:2999) tells us exactly
+ * when a game starts and ends, so the app reacts to the real event instead of
+ * polling Riot on a timer and hoping the interval happens to line up. That
+ * local check is free — no API key, no rate limit — so it can run every few
+ * seconds. Riot's API is only touched at the moments that matter:
+ *
+ *   game starts  -> take a "before" LP reading
+ *   game ends    -> wait for Riot to publish the match, then sync it, take an
+ *                   "after" reading, and attribute the difference to it
+ *
+ * A slow safety-net poll covers games the watcher wasn't around for (app
+ * opened mid-session, games played on another PC).
+ */
+const LIVE_POLL_MS       = 10 * 1000;       // local call, costs nothing
+const LP_FALLBACK_MS     = 15 * 60 * 1000;  // safety net for missed games
+const POST_GAME_DELAY_MS = 45 * 1000;       // let Riot publish the match first
+
+let liveWatchTimer  = null;
+let lpFallbackTimer = null;
+let livePollBusy    = false;
+let wasInGame       = false;
+let pendingEndTimer = null;
+
+/**
+ * Read LP for both queues and persist anything that moved.
+ * Returns true when at least one queue changed.
+ */
+async function captureLpReadings({ quiet = false } = {}) {
+    const config = loadConfig();
+    const name = (document.getElementById('gameName').value.trim() || config.gameName || '').trim();
+    const tag  = (document.getElementById('tagLine').value.trim()  || config.tagLine  || '').trim();
+    if (!name || !tag) return false;
+
+    const puuid      = await resolvePuuid(name, tag);
+    const leagueData = await getLeagueData(puuid);
+
+    let moved = false;
+    for (const [queue, entry] of [['solo', leagueData.solo], ['flex', leagueData.flex]]) {
+        if (!entry) continue;
+        const res = await recordLpReading(queue, entry.tier, entry.rank, entry.leaguePoints);
+        if (!res.changed) continue;
+        moved = true;
+        if (!quiet) {
+            const sign = res.delta > 0 ? '+' : '';
+            showToast(
+                queue === 'solo' ? 'Solo/Duo LP' : 'Flex LP',
+                `${sign}${res.delta} LP — now ${entry.tier} ${entry.rank} ${entry.leaguePoints} LP`,
+                4000
+            );
+        }
+    }
+
+    if (moved) {
+        await attachLpReadingsToMatches().catch(e => console.warn('LP attribution failed:', e.message));
+        if (typeof window.invalidateLpCache === 'function') window.invalidateLpCache();
+        if (typeof window.renderLpCharts === 'function') window.renderLpCharts();
+    }
+    return moved;
+}
+
+/**
+ * A game just ended — pull it in and work out what it cost or earned.
+ *
+ * Riot publishes a match to Match-V5 some time after the client leaves it, and
+ * how long is not guaranteed: usually under a minute, occasionally several.
+ * A single attempt would silently give up whenever the match was slow, leaving
+ * the game missing until the next manual sync — so this retries on a widening
+ * schedule and stops as soon as the match lands.
+ */
+const POST_GAME_RETRY_MS = [45, 45, 60, 120, 180].map(s => s * 1000);
+
+async function handleGameEnded() {
+    if (window.isSyncing) return;
+
+    const wait = ms => new Promise(r => { pendingEndTimer = setTimeout(r, ms); });
+
+    try {
+        showToast('Game Over', 'Fetching the result…', 3000);
+
+        for (let attempt = 0; attempt < POST_GAME_RETRY_MS.length; attempt++) {
+            await wait(POST_GAME_RETRY_MS[attempt]);
+            pendingEndTimer = null;
+
+            // A new game starting means the last one is stale news — the next
+            // game-end will pick it up along with everything else.
+            if (wasInGame) return;
+
+            let found = 0;
+            if (typeof window.handleSync === 'function') {
+                const res = await window.handleSync({ auto: true });
+                found = (res && res.newMatches) || 0;
+            }
+
+            await captureLpReadings();
+
+            if (found > 0) {
+                await window.fetchAndDisplayRankData();
+                return;
+            }
+            console.log(`Match not published yet (attempt ${attempt + 1}/${POST_GAME_RETRY_MS.length})`);
+        }
+
+        // ~7.5 minutes and still nothing. Rare, but say so rather than leave
+        // the user assuming it was logged.
+        showToast('Still Waiting', 'Riot hasn\'t published that match yet — press Sync in a few minutes', 6000);
+    } catch (err) {
+        console.warn('Post-game update failed:', err.message);
+    } finally {
+        pendingEndTimer = null;
+    }
+}
+
+async function pollLiveClient() {
+    if (livePollBusy) return;
+    livePollBusy = true;
+    try {
+        const { inGame } = await getLiveGame();
+
+        if (inGame && !wasInGame) {
+            wasInGame = true;
+            console.log('Live client: game started');
+            // "Before" reading, so the next one has something to measure from.
+            captureLpReadings({ quiet: true }).catch(e => console.warn('Pre-game LP read failed:', e.message));
+            showToast('Game Detected', 'Nexus Insights will log this game when it ends', 3500);
+        } else if (!inGame && wasInGame) {
+            wasInGame = false;
+            console.log('Live client: game ended');
+            handleGameEnded();
+        }
+    } catch (err) {
+        console.warn('Live client poll failed:', err.message);
+    } finally {
+        livePollBusy = false;
+    }
+}
+
+/** Safety net: catch LP movement the live watcher never saw. */
+async function pollLpFallback() {
+    if (window.isSyncing || wasInGame) return;
+    try {
+        await captureLpReadings();
+    } catch (err) {
+        console.warn('LP fallback poll failed:', err.message);
+    }
+}
+
+window.startLpWatcher = function () {
+    const { autoLogGames } = loadConfig();
+
+    if (autoLogGames !== false && !liveWatchTimer) {
+        liveWatchTimer = setInterval(pollLiveClient, LIVE_POLL_MS);
+        console.log(`Live game watcher started (every ${LIVE_POLL_MS / 1000}s, local)`);
+    }
+    if (!lpFallbackTimer) {
+        lpFallbackTimer = setInterval(pollLpFallback, LP_FALLBACK_MS);
+        console.log(`LP fallback poll started (every ${LP_FALLBACK_MS / 60000} min)`);
+    }
+};
+
+window.stopLpWatcher = function () {
+    if (liveWatchTimer)  { clearInterval(liveWatchTimer);  liveWatchTimer  = null; }
+    if (lpFallbackTimer) { clearInterval(lpFallbackTimer); lpFallbackTimer = null; }
+    if (pendingEndTimer) { clearTimeout(pendingEndTimer);  pendingEndTimer = null; }
+};
+
+/** Re-read the autoLogGames setting after the user saves Settings. */
+window.restartLpWatcher = function () {
+    window.stopLpWatcher();
+    window.startLpWatcher();
+};
+
+/**
+ * Diagnostics for the auto-logging chain, callable from devtools (F12):
+ *
+ *   testLiveClient()   — can the app see a running game?
+ *   lpWatcherStatus()  — are the timers actually running?
+ *   forceGameEnd()     — run the post-game sequence now, without playing a game
+ */
+window.testLiveClient = async function () {
+    const res = await testConnection();
+    console.log(res.message);
+    showToast(res.reachable ? 'Live Client Connected' : 'Live Client Not Reachable', res.message, 7000);
+    return res;
+};
+
+window.lpWatcherStatus = function () {
+    const status = {
+        autoLogGames:      loadConfig().autoLogGames !== false,
+        liveWatcherActive: liveWatchTimer !== null,
+        fallbackActive:    lpFallbackTimer !== null,
+        currentlyInGame:   wasInGame,
+        syncInProgress:    !!window.isSyncing,
+        pollSeconds:       LIVE_POLL_MS / 1000,
+    };
+    console.table(status);
+    return status;
+};
+
+window.forceGameEnd = function () {
+    console.log('Forcing the post-game sequence…');
+    wasInGame = false;
+    return handleGameEnded();
 };
 
 // ============================================================
@@ -303,16 +589,30 @@ window.renderFilteredMatches = async function (opts = {}) {
 
         updateChampionDropdown(queueFiltered);
 
+        // Statistics run on real games only — remakes would drag every average
+        // toward zero and count as wins/losses they never were.
+        const statsMatches = window.excludeRemakes(filteredMatches);
+        const remakeCount  = filteredMatches.length - statsMatches.length;
+
         // Analytics always uses queue+champion filter — calendar selection is display-only
-        window.renderAnalyticsTab(filteredMatches, []);
+        window.renderAnalyticsTab(statsMatches, []);
 
         // Keep Time Analytics (calendar, time-of-day, best day, stamina, streaks) in sync
-        window._calendarFilteredMatches = filteredMatches;
-        if (typeof window.renderCalendarMonthView === 'function') window.renderCalendarMonthView(filteredMatches);
-        if (typeof window.calculateTimeInsights   === 'function') window.calculateTimeInsights(filteredMatches);
+        window._calendarFilteredMatches = statsMatches;
+        if (typeof window.renderCalendarMonthView === 'function') window.renderCalendarMonthView(statsMatches);
+        if (typeof window.calculateTimeInsights   === 'function') window.calculateTimeInsights(statsMatches);
 
-        document.getElementById('matchCountBadge').textContent =
-            `${filteredMatches.length} ${filteredMatches.length === 1 ? 'match' : 'matches'}`;
+        // Mirror the count onto the Match History nav button, so the filter's
+        // effect is visible from the Analytics page where the filter lives.
+        const navCount = document.getElementById('navHistoryCount');
+        if (navCount) navCount.textContent = filteredMatches.length;
+
+        const badge = document.getElementById('matchCountBadge');
+        badge.textContent = `${filteredMatches.length} ${filteredMatches.length === 1 ? 'match' : 'matches'}`
+            + (remakeCount > 0 ? ` · ${remakeCount} remake${remakeCount === 1 ? '' : 's'} excluded from stats` : '');
+        badge.title = remakeCount > 0
+            ? 'Remakes are shown in the list below but left out of every statistic'
+            : '';
     }
 
     const displayedMatchCount = window.displayedMatchCount;
@@ -335,7 +635,6 @@ window.renderFilteredMatches = async function (opts = {}) {
         window.DDRAGON_BASE,
         window.QUEUE_NAMES,
         getChampionIcon,
-        timeAgo,
         formatDamage,
         renderRunes,
         renderSummonerSpells,
@@ -371,9 +670,20 @@ window.loadMatchHistory = async function (skipRankFetch = false) {
         clearJsonCache();
         lastFilterSignature = null;
 
-        const [matches, stats] = await Promise.all([getMatches(), getStats()]);
+        const [matches, stats, lpDeltas] = await Promise.all([
+            getMatches(),
+            getStats(),
+            // Per-match LP for the table's LP column. Empty for every game
+            // played before the watcher existed — that history isn't
+            // recoverable from Riot, so those rows show a dash.
+            getLpDeltasByMatch().catch(e => {
+                console.warn('LP deltas unavailable:', e.message);
+                return {};
+            })
+        ]);
 
         window.matchesData = matches;
+        window.lpDeltas    = lpDeltas;
 
         if (activeQueueFilters.size === 0) initializeFilters();
 
@@ -388,6 +698,8 @@ window.loadMatchHistory = async function (skipRankFetch = false) {
         if (matches.length > 0) {
             document.getElementById('unifiedStatsSection').style.display = 'block';
             document.getElementById('matchHistory').style.display        = 'block';
+            const filterSection = document.getElementById('filterSection');
+            if (filterSection) filterSection.style.display = 'flex';
             if (typeof window.initCalendar === 'function') window.initCalendar();
             await window.renderFilteredMatches();
             showToast('Welcome Back', `${stats.totalMatches} matches loaded`);
@@ -468,7 +780,6 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
         let html = `
             <div class="std-stat-header">
                 <div class="std-stat-label" title="${card.label}">${card.label}</div>
-                <div class="std-stat-type">${card.aggregationType}</div>
             </div>
             <div class="std-stat-value"${valueColor}>${card.displayValue}</div>`;
 
@@ -513,40 +824,103 @@ window.loadAllMatches = function () {
 // ============================================================
 let coachingPanelLoaded = false;
 
-window.switchTopTab = function (tab) {
-    const analyticsTab = document.getElementById('analytics-tab');
-    const coachingTab  = document.getElementById('coaching-tab');
-    const navAnalytics = document.getElementById('navAnalytics');
-    const navCoaching  = document.getElementById('navCoaching');
+/**
+ * Top-level pages. Match History is its own page now — the filters that shape
+ * it stay on the Analytics page, since they drive every statistic there too.
+ */
+const TOP_TABS = {
+    analytics: { panel: 'analytics-tab', nav: 'navAnalytics' },
+    history:   { panel: 'history-tab',   nav: 'navHistory'   },
+    coaching:  { panel: 'coaching-tab',  nav: 'navCoaching'  },
+};
 
-    if (tab === 'analytics') {
-        analyticsTab.style.display = 'block';
-        coachingTab.style.display  = 'none';
-        navAnalytics.classList.add('active');
-        navCoaching.classList.remove('active');
-    } else {
-        analyticsTab.style.display = 'none';
-        coachingTab.style.display  = 'block';
-        navAnalytics.classList.remove('active');
-        navCoaching.classList.add('active');
-        // Lazy-load coaching panel on first open
-        if (!coachingPanelLoaded) {
-            coachingPanelLoaded = true;
-            if (typeof window.renderCoachingPanel === 'function') {
-                window.renderCoachingPanel();
-            }
+window.switchTopTab = function (tab) {
+    if (!TOP_TABS[tab]) tab = 'analytics';
+
+    for (const [name, ids] of Object.entries(TOP_TABS)) {
+        const panel = document.getElementById(ids.panel);
+        const nav   = document.getElementById(ids.nav);
+        const on    = name === tab;
+        if (panel) panel.style.display = on ? 'block' : 'none';
+        if (nav)   nav.classList.toggle('active', on);
+    }
+
+    // Picking a section is the end of the interaction — get the drawer out
+    // of the way so the page it just revealed is actually visible.
+    window.closeNavDrawer();
+
+    // Lazy-load the coaching panel on first open
+    if (tab === 'coaching' && !coachingPanelLoaded) {
+        coachingPanelLoaded = true;
+        if (typeof window.renderCoachingPanel === 'function') {
+            window.renderCoachingPanel();
         }
     }
 };
 
 
+/* ============================================================
+   LEFT NAV DRAWER
+   Hidden by default; the arrow tab opens it. Closes on: picking
+   a section, clicking the backdrop, or Escape. The `.open` class
+   drives the CSS transform on all three elements at once.
+   ============================================================ */
+function navDrawerEls() {
+    return {
+        drawer:   document.getElementById('navDrawer'),
+        arrow:    document.getElementById('navArrow'),
+        backdrop: document.getElementById('navBackdrop'),
+    };
+}
+
+window.isNavDrawerOpen = function () {
+    const { drawer } = navDrawerEls();
+    return !!drawer && drawer.classList.contains('open');
+};
+
+function setNavDrawer(open) {
+    const { drawer, arrow, backdrop } = navDrawerEls();
+    for (const el of [drawer, arrow, backdrop]) {
+        if (el) el.classList.toggle('open', open);
+    }
+    if (arrow) {
+        arrow.setAttribute('aria-expanded', String(open));
+        arrow.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+    }
+    // Move focus into the drawer so keyboard users land where they opened
+    if (open && drawer) {
+        const first = drawer.querySelector('.nav-drawer-btn.active') ||
+                      drawer.querySelector('.nav-drawer-btn');
+        if (first) first.focus();
+    }
+}
+
+window.openNavDrawer   = function () { setNavDrawer(true); };
+window.closeNavDrawer  = function () { setNavDrawer(false); };
+window.toggleNavDrawer = function () { setNavDrawer(!window.isNavDrawerOpen()); };
+
+
 document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') window.closeModal();
+    if (e.key !== 'Escape') return;
+    // The drawer is the shallower layer — close it first, and only fall
+    // through to the setup modal when the drawer is already shut.
+    if (window.isNavDrawerOpen()) {
+        window.closeNavDrawer();
+        const arrow = document.getElementById('navArrow');
+        if (arrow) arrow.focus();
+        return;
+    }
+    hideSetupModal();
 });
 
-document.addEventListener('keypress', function (e) {
-    if (e.key === 'Enter') window.handleSync();
-});
+// Enter starts a sync — but only from the summoner name/tag fields, so typing
+// in the settings modal or filters can't fire an accidental sync.
+for (const id of ['gameName', 'tagLine']) {
+    const input = document.getElementById(id);
+    if (input) input.addEventListener('keydown', e => {
+        if (e.key === 'Enter') window.handleSync();
+    });
+}
 
 // ============================================================
 // ANALYTICS TAB CLICK LISTENERS
@@ -554,8 +928,12 @@ document.addEventListener('keypress', function (e) {
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.analytical-tab').forEach(btn => {
         btn.addEventListener('click', e => {
-            document.querySelectorAll('.analytical-tab').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.analytical-tab').forEach(b => {
+                b.classList.remove('active');
+                b.setAttribute('aria-selected', 'false');
+            });
             e.target.classList.add('active');
+            e.target.setAttribute('aria-selected', 'true');
             window.activeAnalyticsTab = e.target.dataset.tab;
             window.renderAnalyticsTab();
         });
@@ -581,6 +959,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.style.backgroundAttachment = 'fixed';
     document.body.style.backgroundSize    = 'cover';
 
+    if (typeof window.initWindowControls === 'function') window.initWindowControls();
+
     const configValid = checkConfigOnStartup();
 
     try {
@@ -593,4 +973,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTooltips();
 
     if (configValid) await window.loadMatchHistory();
+
+    // One-time indexing of matches synced before the precomputed analytics
+    // columns existed. Runs in the background so it never blocks the UI, and
+    // is a no-op on every launch after the first.
+    if (configValid) backfillAnalyticsInBackground();
+
+    // Watch LP while the app is open. This is what makes per-match LP possible
+    // at all — Riot exposes no history, so the readings have to be collected
+    // as they happen.
+    if (configValid) window.startLpWatcher();
 });
+
+async function backfillAnalyticsInBackground() {
+    try {
+        const pending = (window.matchesData || []).filter(
+            m => m.statsComputedAt === null || m.statsComputedAt === undefined
+        );
+        if (pending.length === 0) return;
+
+        console.log(`Indexing ${pending.length} matches for analytics...`);
+        const result = await backfillComputedStats();
+        if (result.done > 0) {
+            // Pick up the newly written columns
+            await window.loadMatchHistory(true);
+            showToast('Analytics Ready', `${result.done} matches indexed — tabs will load faster now`);
+        }
+    } catch (err) {
+        // Purely an optimisation; the tabs still work by parsing the blobs
+        console.warn('Analytics indexing failed (falling back to on-demand parsing):', err);
+    }
+}

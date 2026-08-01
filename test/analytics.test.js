@@ -154,3 +154,35 @@ test('blob-dependent tabs degrade to non-NaN when blobs are missing', () => {
             `${tab} produced NaN with an empty cache instead of degrading`);
     }
 });
+
+test('remake detection uses the stored flag, falling back to duration', () => {
+    const isRemake = (m) => {
+        if (m.isRemake !== null && m.isRemake !== undefined) return m.isRemake === 1;
+        return (m.gameDuration || 0) < 300;
+    };
+    // Riot's flag wins even for a longer game
+    assert.equal(isRemake({ isRemake: 1, gameDuration: 1800 }), true);
+    // ...and a short game Riot did NOT flag is still a real game
+    assert.equal(isRemake({ isRemake: 0, gameDuration: 120 }), false);
+    // Rows predating the column fall back to duration
+    assert.equal(isRemake({ gameDuration: 108 }), true);
+    assert.equal(isRemake({ gameDuration: 1800 }), false);
+    assert.equal(isRemake({}), true, 'a missing duration is treated as a remake, not a real game');
+});
+
+test('a remake does not drag averages toward zero', () => {
+    const real   = [makeMatch({ gameDuration: 1800, kills: 8, deaths: 2, assists: 6, totalMinionsKilled: 200 })];
+    const withRemake = [
+        ...real,
+        makeMatch({ gameDuration: 108, kills: 0, deaths: 0, assists: 0, totalMinionsKilled: 0, isRemake: 1 }),
+    ];
+    const filtered = withRemake.filter(m => m.isRemake !== 1);
+
+    const kdaOf = (list) => {
+        const cards = window.computeTabStats('Overview', list, []);
+        return cards.find(c => c.id === 'avg_csm').value;
+    };
+    assert.equal(kdaOf(filtered).toFixed(4), kdaOf(real).toFixed(4),
+        'filtering the remake should reproduce the clean result exactly');
+    assert.ok(kdaOf(withRemake) < kdaOf(real), 'and leaving it in should measurably drag CS/min down');
+});

@@ -2,20 +2,7 @@ const {
     loadRawJson, loadTimelineJson,
     getCachedRawJson, getCachedTimelineJson
 } = require('../services/matchService');
-
-const RANK_COLORS = {
-  iron: "#5A4A44",
-  bronze: "#8C5A2B",
-  silver: "#A8A8A8",
-  gold: "#D4AF37",
-  platinum: "#4FD1C5",
-  emerald: "#2ECC71",
-  diamond: "#5DADEC",
-  master: "#B56CFF",
-  grandmaster: "#E74C3C",
-  challenger: "#F4D03F",
-  unrated: "#666666"
-};
+const { RANK_COLORS } = require('./rankTiers');
 
 // Benchmark thresholds per stat — values represent the MINIMUM needed to qualify for that tier
 // For "lower is better" stats (higherIsBetter=false), value must be AT OR BELOW the threshold
@@ -133,9 +120,15 @@ window.prefetchTabJson = async function (tabName, ...matchLists) {
     const needs = TAB_JSON_NEEDS[tabName];
     if (!needs || (!needs.raw && !needs.timeline)) return;
 
+    // Only rows that predate the computed-stat backfill still need their JSON.
+    // Once everything is backfilled this list is empty and no blob is touched
+    // at all — which is the whole point of the precomputed columns.
     const ids = [];
     for (const list of matchLists) {
-        if (Array.isArray(list)) for (const m of list) if (m && m.matchId) ids.push(m.matchId);
+        if (!Array.isArray(list)) continue;
+        for (const m of list) {
+            if (m && m.matchId && !isPrecomputed(m)) ids.push(m.matchId);
+        }
     }
     if (ids.length === 0) return;
 
@@ -144,6 +137,21 @@ window.prefetchTabJson = async function (tabName, ...matchLists) {
     if (needs.timeline) jobs.push(loadTimelineJson(ids));
     await Promise.all(jobs);
 };
+
+/**
+ * Has this row been through the computed-stat backfill?
+ *
+ * Tested via the dedicated statsComputedAt stamp rather than any individual
+ * stat, because a stat being NULL is not the same as the row being unindexed:
+ * a 108-second remake where nobody dealt damage has a legitimately NULL
+ * dmgShare, and testing that would have sent it back to the blobs forever.
+ *
+ * Rows synced before these columns existed return false and fall back to
+ * parsing the JSON blobs, so the app stays correct mid-migration.
+ */
+function isPrecomputed(match) {
+    return match.statsComputedAt !== null && match.statsComputedAt !== undefined;
+}
 
 // Synchronous accessor. Returns nulls when a blob was never prefetched, and
 // every calculator below already degrades gracefully on null.
@@ -234,6 +242,19 @@ function calcLanePhase(matches) {
         if (m.goldDiff15 !== null) gd15.push(m.goldDiff15);
         if (m.xpDiff15 !== null) xpd15.push(m.xpDiff15);
 
+        // Precomputed columns (see matchService.computeAdvancedStatsForMatch).
+        // A row that predates the backfill falls through to the blobs below.
+        if (isPrecomputed(m)) {
+            if (m.cs10 !== null) cs10.push(m.cs10);
+            if (m.cs15 !== null) cs15.push(m.cs15);
+            if (m.cs20 !== null) cs20.push(m.cs20);
+            deathsBefore10 += num(m.deathsBefore10);
+            platesTaken    += num(m.platesTaken);
+            platesLost     += num(m.platesLost);
+            soloKillDiff   += num(m.soloKillDiff);
+            return;
+        }
+
         const { raw, timeline } = getParsedData(m);
         if (!raw) return; // need rawJson for participant data
 
@@ -295,6 +316,17 @@ function calcCombat(matches) {
         const gameMin = m.gameDuration / 60;
         dmgMin.push(m.totalDamageDealtToChampions / gameMin);
         
+        if (isPrecomputed(m)) {
+            if (m.dmgShare !== null)          dmgShare.push(m.dmgShare);
+            if (m.dmgGoldRatio !== null)      dmgGold.push(m.dmgGoldRatio);
+            if (m.killParticipation !== null) kpArr.push(m.killParticipation);
+            if (m.dmgTakenPerDeath !== null)  dmgTakenDeath.push(m.dmgTakenPerDeath);
+            multikills       += num(m.multikills);
+            shutdownsClaimed += num(m.shutdownsClaimed);
+            shutdownsGiven   += num(m.shutdownsGiven);
+            return;
+        }
+
         const { raw, timeline } = getParsedData(m);
         if (!raw) return;
         
@@ -400,6 +432,12 @@ function calcDeathReview(matches) {
             isolatedDeaths += m.isolatedDeaths;
         }
 
+        if (isPrecomputed(m)) {
+            deathsBefore10      += num(m.deathsBefore10);
+            shutdownBountyGiven += num(m.shutdownBountyGiven);
+            return;
+        }
+
         const { raw, timeline } = getParsedData(m);
 
         // Timeline-dependent: early deaths and shutdown bounty given
@@ -427,6 +465,7 @@ function calcDeathReview(matches) {
     const avgIsolated = isolatedDeaths / mCount;
     const avgShutdownBounty = shutdownBountyGiven / mCount;
     const deathShare = totalDeaths > 0 ? matches.reduce((acc, m) => {
+        if (isPrecomputed(m)) return acc + ratio(m.deaths, m.enemyTeamKills);
         const { raw } = getParsedData(m);
         if (!raw) return acc;
         const all = raw.info ? raw.info.participants : raw.participants;
@@ -487,6 +526,7 @@ function calcVision(matches) {
     const cwArr   = matches.map(m => m.detectorWardsPlaced || 0);
     const vsMinArr = matches.map(m => (m.visionScore || 0) / (m.gameDuration / 60));
     const vsBuyArr = matches.map(m => {
+        if (isPrecomputed(m)) return num(m.visionAdvantage);
         const { raw } = getParsedData(m);
         if (!raw) return 0;
         const me = getParticipant(raw, m.championName, m.teamId);
@@ -516,6 +556,11 @@ function calcEconomy(matches) {
     const goldShareArr = [];
 
     matches.forEach(m => {
+        if (isPrecomputed(m)) {
+            // stored as a fraction; this array is in percent
+            if (m.goldShare !== null) goldShareArr.push(m.goldShare * 100);
+            return;
+        }
         const { raw } = getParsedData(m);
         if (!raw) return;
         const me   = getParticipant(raw, m.championName, m.teamId);
@@ -725,7 +770,9 @@ window.computeTabStats = function(tabName, matches, prevMatches = []) {
             const prev = calcConsistency(prevMatches);
             const streakLabel = cur.currentStreak > 0 ? `🔥 ${cur.currentStreak}W Streak` : cur.currentStreak < 0 ? `❄️ ${Math.abs(cur.currentStreak)}L Streak` : 'No Streak';
             cards.push(buildCard('con_consistency', 'KDA Consistency',    tabName, cur.kdaConsistency, v => formatNum(v,1)+'%', 'percentage', true, true,  prev ? prev.kdaConsistency : null));
-            cards.push(buildCard('con_kda_std',     'KDA Std Dev',        tabName, cur.kdaStdDev,      v => formatNum(v,2),     'average',    true, false, prev ? prev.kdaStdDev : null));
+            // No STAT_BENCHMARKS entry exists for std-dev, so it is not benchmarkable
+            // (was true → rendered a permanent "Unrated" chip).
+            cards.push(buildCard('con_kda_std',     'KDA Std Dev',        tabName, cur.kdaStdDev,      v => formatNum(v,2),     'average',    false, false, prev ? prev.kdaStdDev : null));
             cards.push(buildCard('con_overall_wr',  'Overall Win Rate',   tabName, cur.overallWr,      v => formatPct(v/100),   'percentage', true, true,  prev ? prev.overallWr : null));
             if (cur.last10Wr !== null) cards.push(buildCard('con_last10_wr', 'Last 10 Win Rate', tabName, cur.last10Wr, v => formatPct(v/100), 'percentage', false, true, prev && prev.last10Wr !== null ? prev.last10Wr : null));
             cards.push(buildCard('con_max_win',     'Best Win Streak',    tabName, cur.maxWin,         v => v,                  'count',      false, true,  prev ? prev.maxWin : null));

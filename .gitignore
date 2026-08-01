@@ -1,4 +1,7 @@
 # ── Secrets ──────────────────────────────────────────────
+# NOTE: the app does NOT read .env. The Riot API key lives in
+# %APPDATA%\nexus-insights\config.json and is set via the in-app
+# Settings dialog. These rules are belt-and-braces only.
 .env
 .env.*
 !.env.example

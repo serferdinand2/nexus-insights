@@ -13,35 +13,63 @@
 <body>
     <!-- Background orbs removed -->
 
+    <!-- Custom title bar — replaces the native frame. The whole strip is a
+         drag region except the buttons, which opt out via .titlebar-btn. -->
+    <div class="titlebar" id="titlebar">
+        <div class="titlebar-brand">Nexus Insights</div>
+        <div class="titlebar-drag"></div>
+        <div class="titlebar-controls">
+            <button class="titlebar-btn titlebar-btn--settings" onclick="openSettings()" title="Settings" aria-label="Settings">⚙</button>
+            <button class="titlebar-btn" id="winMinimize" title="Minimise" aria-label="Minimise">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg>
+            </button>
+            <button class="titlebar-btn" id="winMaximize" title="Maximise" aria-label="Maximise">
+                <svg class="icon-maximize" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+                <svg class="icon-restore" width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="2.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1"/><path d="M2.5 2.5V0.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+            </button>
+            <button class="titlebar-btn titlebar-btn--close" id="winClose" title="Close" aria-label="Close">
+                <svg width="10" height="10" viewBox="0 0 10 10"><path d="M0 0l10 10M10 0L0 10" stroke="currentColor" stroke-width="1"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Left navigation drawer — hidden by default, opened by the arrow tab.
+         Overlays the page rather than pushing it, so the LP canvases and stat
+         cards never re-layout on toggle. -->
+    <button class="nav-arrow" id="navArrow" onclick="toggleNavDrawer()"
+            title="Menu" aria-label="Open navigation" aria-expanded="false" aria-controls="navDrawer">
+        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+            <path d="M4.5 1.5L10 7l-5.5 5.5" fill="none" stroke="currentColor"
+                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+    </button>
+
+    <div class="nav-backdrop" id="navBackdrop" onclick="closeNavDrawer()"></div>
+
+    <nav class="nav-drawer" id="navDrawer" aria-label="Sections">
+        <button class="nav-drawer-btn active" id="navAnalytics" onclick="switchTopTab('analytics')">
+            <span class="nav-icon">📊</span><span class="nav-text">Analytics</span>
+        </button>
+        <button class="nav-drawer-btn" id="navHistory" onclick="switchTopTab('history')">
+            <span class="nav-icon">📜</span><span class="nav-text">Match History</span>
+            <span class="nav-count" id="navHistoryCount"></span>
+        </button>
+        <button class="nav-drawer-btn" id="navCoaching" onclick="switchTopTab('coaching')">
+            <span class="nav-icon">🎯</span><span class="nav-text">Coaching</span>
+            <span class="nav-badge" id="coachingBadge"></span>
+        </button>
+    </nav>
+
     <div class="app-container">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-spacer"></div>
-            <div class="logo">
-                <span class="logo-text">Nexus Insights</span>
-            </div>
-            <button class="settings-btn" onclick="openSettings()" title="Settings">
-                ⚙️
-            </button>
-        </header>
-
-
-        <!-- Top Navigation -->
-        <nav class="top-nav" id="topNav">
-            <button class="top-nav-btn active" id="navAnalytics" onclick="switchTopTab('analytics')">
-                <span class="nav-icon">📊</span> Analytics
-            </button>
-            <button class="top-nav-btn" id="navCoaching" onclick="switchTopTab('coaching')">
-                <span class="nav-icon">🎯</span> Coaching
-                <span class="nav-badge" id="coachingBadge"></span>
-            </button>
-        </nav>
 
         <!-- Analytics Tab Content -->
         <div id="analytics-tab">
             <!-- Main Card -->
             <div class="main-card">
-                <!-- Input Group -->
+                <!-- Input Group — the summoner fields no longer stretch, which
+                     leaves room for the game-mode filters on the same line.
+                     Those filters drive the analytics cards, Time Analytics and
+                     the Match History page, which is why they live here. -->
                 <div class="input-group">
                     <div class="input-wrapper">
                         <label class="input-label" for="gameName">Summoner Name</label>
@@ -58,6 +86,39 @@
                         <span class="btn-icon">&#8635;</span>
                         <span class="btn-text">Sync Matches</span>
                     </button>
+
+                    <div class="filter-inline" id="filterSection" style="display: none;">
+                        <span class="sr-only" id="gameModesLabel">Game Modes</span>
+                        <div class="filter-options" role="group" aria-labelledby="gameModesLabel">
+                            <label class="filter-checkbox">
+                                <input type="checkbox" id="filter-all" checked onchange="toggleAllFilters()">
+                                <span>All</span>
+                            </label>
+                            <label class="filter-checkbox">
+                                <input type="checkbox" class="queue-filter" data-queue="420" checked
+                                    onchange="applyFilters()">
+                                <span>Solo/Duo</span>
+                            </label>
+                            <label class="filter-checkbox">
+                                <input type="checkbox" class="queue-filter" data-queue="440" checked
+                                    onchange="applyFilters()">
+                                <span>Flex</span>
+                            </label>
+                            <label class="filter-checkbox">
+                                <input type="checkbox" class="queue-filter" data-queue="400,430,480,490,700" checked
+                                    onchange="applyFilters()">
+                                <span>Normal</span>
+                            </label>
+                            <button class="filter-clear-btn" onclick="clearGameModeFilters()"
+                                title="Clear all game modes">Clear</button>
+                        </div>
+                        <div class="champ-filter-wrapper">
+                            <select id="champFilter" onchange="applyFilters()" aria-label="Filter by champion">
+                                <option value="">All Champions</option>
+                                <option value="__none__">None (Clear Filter)</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Toast Notification -->
@@ -75,30 +136,29 @@
                         <span class="progress-label">Syncing matches...</span>
                         <span class="progress-count" id="progressCount">0 / 0</span>
                     </div>
-                    <div class="progress-bar">
+                    <div class="progress-bar" role="progressbar" aria-labelledby="progressCount">
                         <div class="progress-fill animated" id="progressFill"></div>
                     </div>
-                    <div class="progress-details" id="progressDetails"
-                        style="display: none; margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.6); text-align: center;">
-                        <span style="color: #4ade80;">✓ <span id="progressNew">0</span> new</span> •
-                        <span style="color: #fb923c;">⊘ <span id="progressFiltered">0</span> filtered</span> •
-                        <span style="color: #60a5fa;">↷ <span id="progressExisting">0</span> existing</span>
+                    <div class="progress-details" id="progressDetails" style="display: none;">
+                        <span class="progress-detail-new">✓ <span id="progressNew">0</span> new</span> •
+                        <span class="progress-detail-filtered">⊘ <span id="progressFiltered">0</span> filtered</span> •
+                        <span class="progress-detail-existing">↷ <span id="progressExisting">0</span> existing</span>
                     </div>
                 </div>
 
                 <!-- Analytical Tabs & Cards -->
                 <div class="unified-stats-section" id="unifiedStatsSection" style="display: none;">
                     
-                    <div class="analytical-tabs-container" id="analyticalTabsContainer">
-                        <button class="analytical-tab active" data-tab="Overview">Overview</button>
-                        <button class="analytical-tab" data-tab="Lane Phase">Lane Phase</button>
-                        <button class="analytical-tab" data-tab="Combat">Combat</button>
-                        <button class="analytical-tab" data-tab="Death Review">Death Review</button>
-                        <button class="analytical-tab" data-tab="Objectives">Objectives</button>
-                        <button class="analytical-tab" data-tab="Vision">Vision</button>
-                        <button class="analytical-tab" data-tab="Economy">Economy</button>
-                        <button class="analytical-tab" data-tab="Macro">Macro</button>
-                        <button class="analytical-tab" data-tab="Consistency">Consistency</button>
+                    <div class="analytical-tabs-container" id="analyticalTabsContainer" role="tablist" aria-label="Statistics categories">
+                        <button class="analytical-tab active" role="tab" aria-selected="true" data-tab="Overview">Overview</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Lane Phase">Lane Phase</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Combat">Combat</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Death Review">Death Review</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Objectives">Objectives</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Vision">Vision</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Economy">Economy</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Macro">Macro</button>
+                        <button class="analytical-tab" role="tab" aria-selected="false" data-tab="Consistency">Consistency</button>
                     </div>
 
                     <!-- We will inject the stat cards here. Ranked cards are handled inside renderer.js -->
@@ -250,61 +310,6 @@
                 </div><!-- /ta-panel -->
 
 
-                <div class="match-history" id="matchHistory" style="display: none;">
-
-                    <div class="section-header">
-                        <h3 class="section-title">Match History</h3>
-                        <span class="match-count-badge" id="matchCountBadge">0 matches</span>
-                    </div>
-
-                    <!-- Filter Section -->
-                    <div class="filter-section">
-                        <div class="filter-label">Game Modes:</div>
-                        <div class="filter-options">
-                            <label class="filter-checkbox">
-                                <input type="checkbox" id="filter-all" checked onchange="toggleAllFilters()">
-                                <span>All</span>
-                            </label>
-                            <label class="filter-checkbox">
-                                <input type="checkbox" class="queue-filter" data-queue="420" checked
-                                    onchange="applyFilters()">
-                                <span>Ranked Solo/Duo</span>
-                            </label>
-                            <label class="filter-checkbox">
-                                <input type="checkbox" class="queue-filter" data-queue="440" checked
-                                    onchange="applyFilters()">
-                                <span>Ranked Flex</span>
-                            </label>
-                            <label class="filter-checkbox">
-                                <input type="checkbox" class="queue-filter" data-queue="400,430,480,490,700" checked
-                                    onchange="applyFilters()">
-                                <span>Normal</span>
-                            </label>
-
-                            <button class="filter-clear-btn" onclick="clearGameModeFilters()"
-                                title="Clear all game modes">Clear</button>
-                        </div>
-                        <div class="champ-filter-wrapper">
-                            <select id="champFilter" onchange="applyFilters()">
-                                <option value="">All Champions</option>
-                                <option value="__none__">None (Clear Filter)</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="match-list" id="matchList">
-                        <!-- Matches will be populated here -->
-                    </div>
-
-                    <!-- Load More Bar -->
-                    <div class="load-more-bar" id="loadMoreBar" style="display:none;">
-                        <span class="load-more-info" id="loadMoreInfo"></span>
-                        <div class="load-more-btns">
-                            <button class="load-more-btn" onclick="loadMoreMatches()">Load 20 More</button>
-                            <button class="load-all-btn" onclick="loadAllMatches()">Load All</button>
-                        </div>
-                    </div>
-                </div>
             </div>
 
 
@@ -318,11 +323,11 @@
         </div>
 
         <!-- Setup Modal (First-time setup / Settings) -->
-        <div class="modal-overlay" id="setupModal">
+        <div class="modal-overlay" id="setupModal" role="dialog" aria-modal="true" aria-labelledby="setupModal-title">
             <div class="modal-content setup-modal">
                 <button class="modal-close setup-close" onclick="hideSetupModal()">&times;</button>
                 <div class="setup-header">
-                    <h2 class="setup-title">Welcome to Nexus Insights</h2>
+                    <h2 class="setup-title" id="setupModal-title">Welcome to Nexus Insights</h2>
                     <p class="setup-subtitle">Enter your details to get started</p>
                 </div>
                 <div class="setup-body">
@@ -375,13 +380,77 @@
                             </select>
                         </div>
                     </div>
+                    <!-- Background behaviour. Riot publishes no LP history, so
+                         the app can only work out per-match LP by observing it
+                         while running — hence the option to keep it alive. -->
+                    <div class="setup-toggles">
+                        <label class="setup-toggle">
+                            <input type="checkbox" id="setupAutoLogGames" checked>
+                            <span class="setup-toggle-text">
+                                <span class="setup-toggle-title">Log games automatically</span>
+                                <span class="setup-toggle-hint">Watches the League client on this PC to detect when a game ends, then syncs it and records the LP change. The Sync button still works manually.</span>
+                            </span>
+                        </label>
+                        <label class="setup-toggle">
+                            <input type="checkbox" id="setupCloseToTray" checked>
+                            <span class="setup-toggle-text">
+                                <span class="setup-toggle-title">Close to tray</span>
+                                <span class="setup-toggle-hint">X hides the window instead of quitting, so LP tracking keeps running.</span>
+                            </span>
+                        </label>
+                        <label class="setup-toggle">
+                            <input type="checkbox" id="setupStartOnLogin" checked>
+                            <span class="setup-toggle-text">
+                                <span class="setup-toggle-title">Start with Windows</span>
+                                <span class="setup-toggle-hint">Launches hidden in the tray at login, ready before your first game.</span>
+                            </span>
+                        </label>
+                    </div>
+
                     <p id="setupError" class="setup-error" style="display: none;"></p>
-                    <button id="setupSaveBtn" class="setup-save-btn" onclick="saveSetup()">Save & Start</button>
+                    <button id="setupSaveBtn" class="setup-save-btn" onclick="saveSetup()">Save &amp; Start</button>
+
+                    <!-- Where the app actually keeps its data. Windows expects
+                         app data in AppData, not next to the source, so this
+                         just makes that location easy to reach. -->
+                    <div class="setup-datadir">
+                        <span class="setup-datadir-label">Your data (database &amp; settings) is stored in</span>
+                        <code class="setup-datadir-path" id="dataDirPath">…</code>
+                        <button type="button" class="setup-datadir-btn" onclick="openDataFolder()">Open folder</button>
+                    </div>
                 </div>
             </div>
         </div>
 
     </div> <!-- End Analytics Tab -->
+
+    <!-- Match History Tab -->
+    <div id="history-tab" style="display:none;">
+        <div class="app-container">
+            <div class="main-card">
+            <div class="match-history" id="matchHistory">
+
+                <div class="section-header">
+                    <h3 class="section-title">Match History</h3>
+                    <span class="match-count-badge" id="matchCountBadge">0 matches</span>
+                </div>
+
+                <div class="match-list" id="matchList">
+                    <!-- Matches will be populated here -->
+                </div>
+
+                <!-- Load More Bar -->
+                <div class="load-more-bar" id="loadMoreBar" style="display:none;">
+                    <span class="load-more-info" id="loadMoreInfo"></span>
+                    <div class="load-more-btns">
+                        <button class="load-more-btn" onclick="loadMoreMatches()">Load 50 More</button>
+                        <button class="load-all-btn" onclick="loadAllMatches()">Load All</button>
+                    </div>
+                </div>
+            </div>
+            </div>
+        </div>
+    </div>
 
     <!-- Coaching Tab -->
     <div id="coaching-tab" style="display:none;">
@@ -396,21 +465,8 @@
     </div>
 
 
-    <!-- Match Detail Modal -->
-    <div class="modal-overlay" id="matchModal" onclick="closeModalOnBackdrop(event)">
-        <div class="modal-content">
-            <button class="modal-close" onclick="closeModal()">&times;</button>
-            <div class="modal-header" id="modalHeader">
-                <!-- Populated by JS -->
-            </div>
-            <div class="modal-body" id="modalBody">
-                <!-- Populated by JS -->
-            </div>
-        </div>
-    </div>
-
     <!-- Game Tooltip for Items/Runes -->
-    <div id="gameTooltip" class="game-tooltip" style="display: none;">
+    <div id="gameTooltip" class="game-tooltip" role="tooltip" style="display: none;">
         <div class="tooltip-title"></div>
         <div class="tooltip-description"></div>
     </div>

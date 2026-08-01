@@ -10,7 +10,9 @@ const {
     syncMatches,
     backfillTimelines,
     backfillAdvancedStats,
-    fetchRanksForNewMatches
+    backfillComputedStats,
+    fetchRanksForNewMatches,
+    attachLpReadingsToMatches
 } = require('../services/matchService');
 const { loadConfig } = require('../services/config');
 
@@ -103,20 +105,36 @@ function hideProgress() {
 // ---------------------------------------------------------------------------
 // MAIN SYNC HANDLER
 // ---------------------------------------------------------------------------
-window.handleSync = async function () {
-    const name = document.getElementById('gameName').value.trim();
-    const tag  = document.getElementById('tagLine').value.trim();
+/**
+ * @param {object} [options]
+ * @param {boolean} [options.auto] Triggered by the live-game watcher rather
+ *   than the button. An auto sync pulls in one just-finished game, so it skips
+ *   the manual-use guards: it doesn't complain when fields are blank (it falls
+ *   back to the saved config), it isn't blocked by the cooldown, and it doesn't
+ *   start one afterwards — a two-minute lockout after every game would make the
+ *   button useless exactly when you want to press it.
+ */
+window.handleSync = async function (options = {}) {
+    const auto   = options.auto === true;
+    const config = loadConfig();
+    const name = document.getElementById('gameName').value.trim() || (auto ? config.gameName : '');
+    const tag  = document.getElementById('tagLine').value.trim()  || (auto ? config.tagLine  : '');
 
     if (!name || !tag) {
-        updateStatus('error', 'Missing Information', 'Please enter both your game name and tag');
+        if (!auto) updateStatus('error', 'Missing Information', 'Please enter both your game name and tag');
         return;
     }
-    if (syncCooldownInterval) {
+    if (syncCooldownInterval && !auto) {
         updateStatus('error', 'Cooldown Active', 'Please wait for the cooldown to finish');
         return;
     }
+    // Never run two syncs at once, however they were started.
+    if (window.isSyncing) return;
 
     setButtonLoading(true);
+    // The LP watcher polls the same endpoints; this tells it to stand down so
+    // the two don't compete for the rate limiter.
+    window.isSyncing = true;
 
     try {
         updateStatus('loading', 'Finding Account', `Looking up ${name}#${tag}...`);
@@ -143,6 +161,14 @@ window.handleSync = async function () {
         });
         hideProgress();
 
+        // Fill the precomputed analytics columns for any match that predates
+        // them. Once done, the analytics tabs never touch the JSON blobs.
+        const computedResult = await backfillComputedStats((current, total) => {
+            updateStatus('loading', 'Preparing Analytics', `${current}/${total} matches...`);
+            updateProgress(current, total);
+        });
+        hideProgress();
+
         let rankMsg = '';
         if (result.newMatchIds && result.newMatchIds.length > 0) {
             const rankResult = await fetchRanksForNewMatches(result.newMatchIds, (current, total) => {
@@ -157,10 +183,37 @@ window.handleSync = async function () {
         await window.loadMatchHistory(true);
 
         const advancedMsg = advancedResult.total  > 0 ? `, ${advancedResult.updated} stats computed`   : '';
+        const computedMsg = computedResult.total  > 0 ? `, ${computedResult.done} matches indexed`     : '';
         const timelineMsg = backfillResult.total   > 0 ? `, ${backfillResult.updated} timelines added`  : '';
-        updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${rankMsg}`);
+        if (auto) {
+            // Quieter wording — this one ran on its own, off the back of a
+            // game the user just played.
+            updateStatus('success', 'Game Logged',
+                result.newMatches > 0
+                    ? `${result.newMatches} new match added to your history`
+                    : 'No new match found yet — it may still be publishing');
+        } else {
+            updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`);
+        }
 
-        startSyncCooldown();
+        // Readings taken before their match was synced have no match to point
+        // at yet. Now that the games are in the DB, they can be attributed.
+        try {
+            const { linked } = await attachLpReadingsToMatches();
+            if (linked > 0) {
+                if (typeof window.invalidateLpCache === 'function') window.invalidateLpCache();
+                if (typeof window.renderLpCharts === 'function') window.renderLpCharts();
+            }
+        } catch (e) { console.warn('LP attribution failed:', e.message); }
+
+        // An auto sync fetches a single new game — nowhere near the rate
+        // limit, and locking the button for two minutes after every match
+        // would be worse than useless.
+        if (!auto) startSyncCooldown();
+
+        // Let the caller see whether anything actually landed, so the
+        // post-game watcher knows whether to try again.
+        return { newMatches: result.newMatches || 0 };
 
     } catch (err) {
         console.error('Sync error:', err);
@@ -172,7 +225,9 @@ window.handleSync = async function () {
         else if (err.response?.status === 429) errorMessage = 'Rate limited. Please wait a moment';
 
         updateStatus('error', 'Sync Failed', errorMessage);
+        return { newMatches: 0, error: errorMessage };
     } finally {
+        window.isSyncing = false;
         if (!syncCooldownInterval) setButtonLoading(false);
     }
 };

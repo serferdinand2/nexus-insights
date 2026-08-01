@@ -1,4 +1,7 @@
 const zlib = require('zlib');
+const { promisify } = require('util');
+
+const gunzipAsync = promisify(zlib.gunzip);
 
 /**
  * Compress a JSON-serializable value into a gzip Buffer.
@@ -29,4 +32,18 @@ function decompressJson(compressed) {
     return JSON.parse(decompressed.toString('utf8'));
 }
 
-module.exports = { compressJson, decompressJson };
+/**
+ * Async variant of decompressJson. gunzipSync blocks whichever thread runs it —
+ * in the renderer that means visible UI freezes when loops decode dozens of
+ * multi-MB timeline blobs. This offloads the gunzip to libuv's thread pool.
+ * @param {Buffer|string|null} compressed
+ * @returns {Promise<*>}
+ */
+async function decompressJsonAsync(compressed) {
+    if (compressed === null || compressed === undefined) return null;
+    if (typeof compressed === 'string') return JSON.parse(compressed);
+    const decompressed = await gunzipAsync(compressed);
+    return JSON.parse(decompressed.toString('utf8'));
+}
+
+module.exports = { compressJson, decompressJson, decompressJsonAsync };

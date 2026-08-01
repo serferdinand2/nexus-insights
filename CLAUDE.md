@@ -1,6 +1,6 @@
 # Nexus Insights — Project Context
 
-> **Last updated**: 2026-07-14
+> **Last updated**: 2026-07-24 (post-refactor: config caching, async gunzip, row-by-row migration, remake filters in coaching/getStats, shared rank palette `components/rankTiers.js`, shared `services/paths.js`, dead code pruned incl. the old match modal)
 > **Status**: Active development
 
 ## What Is This?
@@ -17,7 +17,6 @@ A **League of Legends personal analytics desktop app** built with **Electron + v
 | Frontend | Vanilla HTML/CSS/JS (no framework) |
 | Database | SQLite3 (`sqlite3` npm package — not `better-sqlite3`) |
 | HTTP | Axios 1.6.0 |
-| Env vars | dotenv 16.3.1 |
 | Compression | Node.js built-in zlib (gzip) |
 | Build | electron-builder 25.1.8 (NSIS installer, Windows x64 only) |
 | Font | Inter (Google Fonts) |
@@ -42,7 +41,7 @@ src/
 │   ├── coachingPanel.js       # Coaching board with expandable goal cards (883 lines)
 │   ├── filtersPanel.js        # Queue/champion filter logic
 │   ├── matchCard.js           # Match card HTML helpers (icons, runes, spells, duration)
-│   ├── matchModal.js          # Match detail modal — 10-player table + badges (439 lines)
+│   ├── matchModal.js          # Inline expanded rows — 10-player table + badges
 │   ├── syncPanel.js           # Sync button handler + progress bar UI
 │   ├── tableRenderer.js       # Match history table rendering + ranked stats
 │   └── tooltipSystem.js       # Item/rune tooltip on hover
@@ -58,7 +57,7 @@ src/
     └── toast.css              # Toast notification styles
 ```
 
-**Root files**: `package.json`, `.env` (API key), `nexus_data.sqlite` (~131MB local DB)
+**Root files**: `package.json` (no `.env` — the API key lives in the user config; the DB lives in `%APPDATA%/nexus-insights/`)
 
 ---
 
@@ -78,7 +77,7 @@ src/
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
 - **Coaching tab**: Data-driven goal cards (collapsed by default, click to expand). Shows a progress ring (goals met/total), each card has a priority badge (HIGH/MED/LOW), quick-tip summary, expandable progress bar + detailed stats + insight text + action advice. Confetti burst when all goals are met.
-- **Match Detail Modal**: Full 10-player breakdown table (Blue / Red teams), items 2×3 grid, runes, summoner spells, KDA, CS/min, damage, vision score. Expanded inline rows show advanced stats (GD@15, CSD@15). Badge awards shown in modal.
+- **Expanded Match Rows**: clicking a match-table row expands an inline full 10-player breakdown (both teams): items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
 
@@ -128,7 +127,7 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 - Cards list, newest first, showing: champion icon, position, mode, result (Win/Loss), KDA, CS, damage, vision, items strip, time ago
 - Filters: queue type checkboxes (Ranked Solo, Ranked Flex, Normal) + champion dropdown
 - Pagination: 50 shown initially, "Load 20 More" or "Load All" buttons
-- Click any card → opens the full Match Detail Modal
+- Click any row → expands the inline 10-player breakdown
 
 ---
 
@@ -195,7 +194,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 
 ### JSON Compression
 - `compression.js` gzips `rawJson`/`timelineJson` on **write**, and `decompressJson()` transparently handles both gzip Buffers and legacy uncompressed TEXT
-- ⚠️ **The existing rows in `nexus_data.sqlite` are still legacy uncompressed TEXT** (`typeof` = `text`, ~131MB: 14.5MB rawJson + 116MB timelineJson). Migration 1 in `database.js` has not been applied to this DB. Running it would cut the file to roughly 15MB
+- Migration 1 converts legacy TEXT rows to gzip BLOBs **row-by-row** (rewritten 2026-07: the old version loaded all ~131MB in one query and never completed). It resumes where it stopped, only marks `schema_version` when nothing is left, then VACUUMs (~131MB → ~15MB)
 - `getMatches()` does **not** select the blob columns (see Lazy JSON Loading below)
 
 ### Advanced Stats (computed from timeline data)
@@ -219,7 +218,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 - Defined in `Badges.csv`, evaluated in `badgeEvaluator.js`
 - Regions: Bandle City, Noxus, Demacia, Bilgewater, Freljord, Ionia, Piltover, Zaun, Targon, Shurima, Shadow Isles, Ixtal, The Void
 - Some badges disabled (API limitations) — `evaluate: () => false`
-- Badge results shown in the Match Detail Modal
+- Badge results shown in the expanded match row
 
 ### Module Architecture
 - Each component file registers functions on `window.*` as side-effects (no ES module `export`)
@@ -230,11 +229,6 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 ---
 
 ## Config & Environment
-
-### `.env` (project root)
-```
-RIOT_API_KEY=RGAPI-...
-```
 
 ### User config (`%APPDATA%/nexus-insights/config.json`)
 ```json
@@ -353,3 +347,50 @@ RIOT_API_KEY=RGAPI-...
 - `getMatchById()` still does `SELECT *`, so the match modal / expanded row / badge evaluator get full blobs for a single match. `toggleRowExpand` must pass that full row to `createExpandedRow`, not the light `matchesData` row
 
 **If you add a stat that reads rawJson or timelineJson, add its tab to `TAB_JSON_NEEDS` or it will silently compute from `null`.**
+
+### Remakes are excluded from statistics
+
+Games abandoned in the first minutes (someone failed to connect) are stored and
+displayed, but never counted in a statistic.
+
+- `isRemake` column, written at sync/backfill from Riot's own
+  `gameEndedInEarlySurrender`, falling back to `gameDuration < 300`
+- `window.isRemake(match)` / `window.excludeRemakes(list)` in renderer.js are
+  the single source of truth; they fall back to duration for un-backfilled rows
+- `renderFilteredMatches` passes the filtered list to the analytics engine, the
+  calendar, and the time-insight pass — but the **unfiltered** list to the match
+  table, so remakes stay visible
+- `displayRankedStats` also excludes them: a remake is neither a win nor a loss
+- Remake rows render dimmed with a `REMAKE` tag, and the match-count badge says
+  how many were excluded, so the numbers never look unexplained
+
+### Precomputed analytics columns
+
+Every per-match value the analytics tabs used to derive by re-parsing the blobs
+is now computed once and stored as a column:
+
+`cs10`, `cs15`, `cs20`, `deathsBefore10`, `platesTaken`, `platesLost`,
+`soloKillDiff`, `dmgShare`, `killParticipation`, `dmgTakenPerDeath`,
+`multikills`, `shutdownsClaimed`, `shutdownsGiven`, `shutdownBountyGiven`,
+`enemyTeamKills`, `visionAdvantage`, `goldShare`
+
+- Written by `computeAdvancedStatsForMatch()` → `saveComputedStats()`, on both
+  the sync path and the backfill path, so they can't diverge
+- `backfillComputedStats()` fills them for older rows. It runs on sync and once
+  in the background at startup (`backfillAnalyticsInBackground` in renderer.js)
+- `analyticsEngine.isPrecomputed(match)` uses `dmgShare != null` as the marker.
+  Rows without it fall back to parsing the blobs, so the app is correct
+  mid-migration
+- `prefetchTabJson` only loads blobs for rows that are *not* precomputed —
+  once backfilled, the analytics tabs touch no JSON at all
+
+Two traps, both found by the parity harness:
+
+1. **`saveComputedStats` must not rewrite the seven legacy columns**
+   (`csDiff15`, `goldDiff15`, `xpDiff15`, `firstBlood`, `dmgGoldRatio`,
+   `isolatedDeaths`, `objectiveRate`) — they are already written at sync time.
+   That's why `LEGACY_STAT_COLUMNS` is a separate list behind an opt-in flag.
+2. **Watch the scale.** `dmgShare`/`goldShare` are stored as fractions, but
+   `calcEconomy` builds its array in percent and `calcCombat` in fractions.
+   Death share is stored as `enemyTeamKills` rather than a ratio, so the
+   calculator keeps dividing the authoritative `deaths` column.

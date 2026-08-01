@@ -1,21 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const electron = require('electron');
-
-// Get userData path - works in both main and renderer processes
-let userDataPath;
-if (electron.app) {
-    userDataPath = electron.app.getPath('userData');
-} else {
-    const appName = 'nexus-insights';
-    if (process.platform === 'win32') {
-        userDataPath = path.join(process.env.APPDATA, appName);
-    } else if (process.platform === 'darwin') {
-        userDataPath = path.join(process.env.HOME, 'Library', 'Application Support', appName);
-    } else {
-        userDataPath = path.join(process.env.HOME, '.config', appName);
-    }
-}
+const { userDataPath } = require('./paths');
 
 const configPath = path.join(userDataPath, 'config.json');
 
@@ -25,7 +10,17 @@ const defaultConfig = {
     gameName: '',
     tagLine: '',
     region: 'europe',      // Regional routing: europe, americas, asia
-    platform: 'euw1'       // Platform: euw1, na1, kr, etc.
+    platform: 'euw1',      // Platform: euw1, na1, kr, etc.
+
+    // Background behaviour. Both default on because they're what make
+    // per-match LP work: Riot exposes no LP history, so the app has to be
+    // running to observe changes as they happen.
+    closeToTray: true,     // X hides to the system tray instead of quitting
+    startOnLogin: true,    // launch automatically when Windows starts
+
+    // Watch the League client's local Live Client Data API (127.0.0.1:2999)
+    // to detect when a game starts and ends, then log it automatically.
+    autoLogGames: true
 };
 
 // Ensure userData directory exists
@@ -35,25 +30,21 @@ function ensureUserDataDir() {
     }
 }
 
-// Load config from file
+// In-memory cache — loadConfig() is called on every Riot API request, and a
+// sync issues hundreds of them. Reading the file once and invalidating on
+// save turns those into plain object reads.
+let cachedConfig = null;
+
+// Load config from file (cached after first read)
 function loadConfig() {
-    console.log('=== loadConfig DEBUG ===');
-    console.log('userDataPath:', userDataPath);
-    console.log('configPath:', configPath);
-    console.log('Config file exists:', fs.existsSync(configPath));
+    if (cachedConfig) return { ...cachedConfig };
 
     ensureUserDataDir();
     try {
         if (fs.existsSync(configPath)) {
             const data = fs.readFileSync(configPath, 'utf8');
-            const config = { ...defaultConfig, ...JSON.parse(data) };
-            console.log('Config loaded successfully:', JSON.stringify({
-                ...config,
-                apiKey: config.apiKey ? '[PRESENT - length: ' + config.apiKey.length + ']' : '[MISSING]'
-            }));
-            return config;
-        } else {
-            console.log('Config file does not exist, returning defaults');
+            cachedConfig = { ...defaultConfig, ...JSON.parse(data) };
+            return { ...cachedConfig };
         }
     } catch (err) {
         console.error('Error loading config:', err);
@@ -66,6 +57,7 @@ function saveConfig(config) {
     ensureUserDataDir();
     try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        cachedConfig = { ...defaultConfig, ...config };
         return true;
     } catch (err) {
         console.error('Error saving config:', err);

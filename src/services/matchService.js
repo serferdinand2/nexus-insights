@@ -1,6 +1,6 @@
 const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
-const { compressJson, decompressJson } = require('./compression');
+const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
 const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
@@ -10,6 +10,9 @@ const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
 // Callers no longer sleep manually — doing so on top of the limiter would only
 // slow syncs down without making them any safer.
 const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// A game shorter than this is treated as a remake if Riot didn't flag it.
+const REMAKE_MAX_SECONDS = 300; // 5 minutes
 
 // Season start timestamp (Jan 1, 2026 00:00:00 UTC) — milliseconds for Riot API
 const RANKED_SEASON_START = new Date('2026-01-01T00:00:00Z').getTime();
@@ -77,7 +80,9 @@ async function loadJsonColumn(column, cache, matchIds) {
         for (const row of rows) {
             let parsed = null;
             try {
-                parsed = row[column] ? decompressJson(row[column]) : null;
+                // Async gunzip — keeps the renderer thread responsive while
+                // decoding dozens of multi-MB blobs.
+                parsed = row[column] ? await decompressJsonAsync(row[column]) : null;
             } catch (e) {
                 console.warn(`Failed to decode ${column} for ${row.matchId}:`, e.message);
             }
@@ -130,7 +135,12 @@ async function getMatches(limit = null) {
                 teamRiftHeralds, enemyRiftHeralds, teamTowers, enemyTowers,
                 teamInhibitors, enemyInhibitors, teamId, teamKills,
                 primaryRune, secondaryRuneStyle,
-                csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate
+                csDiff15, goldDiff15, xpDiff15, firstBlood, dmgGoldRatio, isolatedDeaths, objectiveRate,
+                cs10, cs15, cs20, deathsBefore10,
+                platesTaken, platesLost, soloKillDiff,
+                dmgShare, killParticipation, dmgTakenPerDeath, multikills,
+                shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
+                enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -159,6 +169,10 @@ async function getMatchById(matchId) {
  * the main process, and only the derived numbers cross the IPC boundary.
  */
 async function getCoachingData(seasonStart, timelineSample = 40) {
+    // Remakes are excluded here for the same reason they are excluded from
+    // every other statistic: 0/0/0 KDA rows drag every average toward zero
+    // and count wins/losses that never happened. COALESCE mirrors
+    // window.isRemake's duration fallback for rows that predate the column.
     const rows = await dbAll(`
         SELECT matchId, win, championName, kills, deaths, assists,
                gameDuration, gameCreation,
@@ -168,9 +182,14 @@ async function getCoachingData(seasonStart, timelineSample = 40) {
                isolatedDeaths, goldDiff15, csDiff15,
                teamDragons, enemyDragons, teamBarons, teamKills, firstBlood,
                doubleKills, tripleKills, turretKills, objectivesStolen,
-               dmgGoldRatio
+               dmgGoldRatio,
+               -- Needed by coachingEngine: role decides which benchmark
+               -- applies, and these are the early-game inputs it ranks on.
+               teamPosition, deathsBefore10, cs10, cs15,
+               killParticipation, dmgShare
         FROM matches
         WHERE queueId = 420 AND gameCreation >= ?
+          AND COALESCE(isRemake, CASE WHEN gameDuration < ${REMAKE_MAX_SECONDS} THEN 1 ELSE 0 END) = 0
         ORDER BY gameCreation ASC
     `, [seasonStart]);
 
@@ -187,7 +206,7 @@ async function getCoachingData(seasonStart, timelineSample = 40) {
     const firstDrakeTimes = [];
     for (const tr of timelineRows) {
         let tl = null;
-        try { tl = decompressJson(tr.timelineJson); } catch { /* skip bad row */ }
+        try { tl = await decompressJsonAsync(tr.timelineJson); } catch { /* skip bad row */ }
         if (!tl) continue;
         let earliest = Infinity;
         for (const frame of (tl.info?.frames ?? [])) {
@@ -203,7 +222,7 @@ async function getCoachingData(seasonStart, timelineSample = 40) {
     return { rows, firstDrakeTimes };
 }
 
-// Get summary stats
+// Get summary stats (remakes excluded — they are not statistics)
 async function getStats() {
     const stats = await dbGet(
         `SELECT
@@ -221,7 +240,8 @@ async function getStats() {
             SUM(baronKills) as totalBarons,
             SUM(turretKills) as totalTurrets,
             AVG(wardsPlaced) as avgWardsPlaced
-         FROM matches`
+         FROM matches
+         WHERE COALESCE(isRemake, CASE WHEN gameDuration < ${REMAKE_MAX_SECONDS} THEN 1 ELSE 0 END) = 0`
     );
     return stats;
 }
@@ -383,6 +403,10 @@ async function syncMatches(puuid, onProgress) {
                         advStats.csDiff15, advStats.goldDiff15, advStats.xpDiff15, advStats.firstBlood, advStats.dmgGoldRatio, advStats.isolatedDeaths, advStats.objectiveRate
                     ]
                 );
+                // Write the precomputed analytics values through the same
+                // path the backfill uses, so both stay consistent.
+                await saveComputedStats(id, advStats);
+
                 newMatches++;
                 newMatchIds.push(id);
                 console.log(`Saved match ${id}: ${me.championName} (${me.teamPosition || me.lane}) - ${me.kills}/${me.deaths}/${me.assists}`);
@@ -414,6 +438,88 @@ async function syncMatches(puuid, onProgress) {
 }
 
 // Compute advanced stats given the participant index and parsed data
+/**
+ * Columns written by saveComputedStats(). Kept as one list so the schema, the
+ * writer and the backfill can't drift apart.
+ */
+const COMPUTED_STAT_COLUMNS = [
+    'cs10', 'cs15', 'cs20', 'deathsBefore10',
+    'platesTaken', 'platesLost', 'soloKillDiff',
+    'dmgShare', 'killParticipation', 'dmgTakenPerDeath', 'multikills',
+    'shutdownsClaimed', 'shutdownsGiven', 'shutdownBountyGiven',
+    'enemyTeamKills', 'visionAdvantage', 'goldShare',
+    'statsComputedAt', 'isRemake',
+];
+
+/**
+ * The seven columns that existed before this change. The backfill deliberately
+ * does NOT rewrite them: they were already populated at sync time by this same
+ * function, so recomputing them would be churn at best, and at worst would
+ * silently alter values the UI has been benchmarking against.
+ */
+const LEGACY_STAT_COLUMNS = [
+    'csDiff15', 'goldDiff15', 'xpDiff15', 'firstBlood', 'dmgGoldRatio',
+    'isolatedDeaths', 'objectiveRate',
+];
+
+/**
+ * Persist the computed values for one match.
+ *
+ * Done as a separate UPDATE rather than by widening the (already 58-column)
+ * INSERT in syncMatches, so the sync path and the backfill path write these
+ * through exactly the same code.
+ */
+async function saveComputedStats(matchId, stats, { includeLegacy = false } = {}) {
+    // Stamp the row so we can tell "indexed" from "indexed, value not applicable"
+    stats = { ...stats, statsComputedAt: Date.now() };
+    const candidates = includeLegacy
+        ? [...LEGACY_STAT_COLUMNS, ...COMPUTED_STAT_COLUMNS]
+        : COMPUTED_STAT_COLUMNS;
+    const cols = candidates.filter(c => stats[c] !== undefined);
+    if (cols.length === 0) return;
+    await dbRun(
+        `UPDATE matches SET ${cols.map(c => `${c} = ?`).join(', ')} WHERE matchId = ?`,
+        [...cols.map(c => stats[c]), matchId]
+    );
+}
+
+/**
+ * Fill in the precomputed columns for matches that predate them.
+ * Safe to re-run; only touches rows where the values are still NULL.
+ */
+async function backfillComputedStats(onProgress) {
+    const rows = await dbAll(`
+        SELECT matchId, championName, teamId
+        FROM matches
+        WHERE rawJson IS NOT NULL AND statsComputedAt IS NULL
+        ORDER BY gameCreation DESC
+    `);
+
+    let done = 0, failed = 0;
+    for (const row of rows) {
+        try {
+            const blobs = await dbGet(
+                'SELECT rawJson, timelineJson FROM matches WHERE matchId = ?',
+                [row.matchId]
+            );
+            const raw = await decompressJsonAsync(blobs.rawJson);
+            const tl  = blobs.timelineJson ? await decompressJsonAsync(blobs.timelineJson) : null;
+
+            const stats = computeAdvancedStatsForMatch(raw, tl, row.championName, row.teamId);
+            await saveComputedStats(row.matchId, stats);
+            done++;
+        } catch (err) {
+            failed++;
+            console.warn(`Backfill failed for ${row.matchId}:`, err.message);
+        }
+        if (onProgress) onProgress(done + failed, rows.length);
+    }
+
+    clearJsonCache();
+    console.log(`Computed-stat backfill: ${done} updated, ${failed} failed, ${rows.length} total`);
+    return { done, failed, total: rows.length };
+}
+
 function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, myTeamId) {
     const result = {
         csDiff15: null,
@@ -422,7 +528,19 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         firstBlood: 0,
         dmgGoldRatio: null,
         isolatedDeaths: null,
-        objectiveRate: null
+        objectiveRate: null,
+
+        // Per-match values the analytics tabs used to derive by re-parsing
+        // rawJson/timelineJson on every render. Computed once, stored, read
+        // back as plain numbers.
+        cs10: null, cs15: null, cs20: null,
+        deathsBefore10: null,
+        platesTaken: null, platesLost: null, soloKillDiff: null,
+        dmgShare: null, killParticipation: null,
+        dmgTakenPerDeath: null, multikills: null,
+        shutdownsClaimed: null, shutdownsGiven: null, shutdownBountyGiven: null,
+        enemyTeamKills: null, visionAdvantage: null, goldShare: null,
+        isRemake: null
     };
 
     try {
@@ -439,9 +557,61 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         // === First Blood ===
         result.firstBlood = (me.firstBloodKill || me.firstBloodAssist) ? 1 : 0;
 
+        // === Remake ===
+        // Riot's flag is authoritative; the duration check catches payloads
+        // that predate it or omit it.
+        const duration = (info.info ? info.info.gameDuration : info.gameDuration) || 0;
+        result.isRemake = (me.gameEndedInEarlySurrender || duration < REMAKE_MAX_SECONDS) ? 1 : 0;
+
         // === Dmg/Gold Ratio ===
         if (me.goldEarned > 0) {
             result.dmgGoldRatio = parseFloat(((me.totalDamageDealtToChampions || 0) / me.goldEarned).toFixed(3));
+        }
+
+        // ── Values derived from the match payload alone (no timeline) ──────
+        const myTeam    = participants.filter(p => p.teamId === me.teamId);
+        const enemyTeam = participants.filter(p => p.teamId !== me.teamId);
+        const myPosition = me.teamPosition || me.lane || '';
+        const laneOpponent = myPosition
+            ? enemyTeam.find(p => (p.teamPosition || p.lane || '') === myPosition)
+            : null;
+
+        const n = (v) => (Number.isFinite(v) ? v : 0);
+        const safeRatio = (a, b) => (n(b) > 0 && Number.isFinite(n(a) / n(b)) ? n(a) / n(b) : null);
+        const round3 = (v) => (v === null ? null : parseFloat(v.toFixed(3)));
+
+        const teamDamage = myTeam.reduce((s, p) => s + n(p.totalDamageDealtToChampions), 0);
+        const teamGold   = myTeam.reduce((s, p) => s + n(p.goldEarned), 0);
+        const teamKills  = myTeam.reduce((s, p) => s + n(p.kills), 0);
+        const enemyKills = enemyTeam.reduce((s, p) => s + n(p.kills), 0);
+
+        result.dmgShare  = round3(safeRatio(me.totalDamageDealtToChampions, teamDamage));
+        result.goldShare = round3(safeRatio(me.goldEarned, teamGold));
+        // Stored raw rather than as a ratio so death share stays keyed off the
+        // authoritative `deaths` column rather than the participant blob.
+        result.enemyTeamKills = enemyKills;
+
+        result.killParticipation = round3(
+            Number.isFinite(me.challenges?.killParticipation)
+                ? me.challenges.killParticipation
+                : safeRatio(n(me.kills) + n(me.assists), teamKills)
+        );
+
+        // totalDamageTaken is missing on some older/alternate-queue payloads
+        result.dmgTakenPerDeath = Number.isFinite(me.totalDamageTaken)
+            ? round3(me.totalDamageTaken / Math.max(1, n(me.deaths)))
+            : null;
+
+        result.multikills = n(me.doubleKills) + n(me.tripleKills) + n(me.quadraKills) + n(me.pentaKills);
+
+        if (me.challenges) {
+            result.platesTaken = n(me.challenges.turretPlatesTaken);
+            result.soloKillDiff = n(me.challenges.soloKills)
+                - n(laneOpponent?.challenges?.soloKills);
+            result.visionAdvantage = round3(n(me.challenges.visionScoreAdvantageLaneOpponent));
+        }
+        if (laneOpponent?.challenges) {
+            result.platesLost = n(laneOpponent.challenges.turretPlatesTaken);
         }
 
         // Parse timeline if available
@@ -454,37 +624,57 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         const frames = timeline.info.frames;
 
         // === CSD@15, GD@15, XPD@15 ===
-        // Frame index 15 = 15 minutes (each frame is 1 minute)
-        const frame15 = frames[15] || frames[frames.length - 1];
+        // Frame index 15 = 15 minutes (each frame is 1 minute). Games that
+        // ended before 15:00 stay null — substituting the last frame recorded
+        // a fake "@15" diff for 12-minute stomps and skewed the benchmarks.
+        const frame15 = frames.length > 15 ? frames[15] : null;
         if (frame15 && frame15.participantFrames) {
             const myFrame = frame15.participantFrames[myPId];
-            if (myFrame) {
-                // Find lane opponent: same position on enemy team
-                const myPosition = me.teamPosition || me.lane || '';
-                const opponent = participants.find(p =>
-                    p.teamId !== me.teamId &&
-                    ((p.teamPosition || p.lane || '') === myPosition) &&
-                    myPosition !== ''
-                );
-
-                if (opponent) {
-                    const oppPId = opponent.participantId || (participants.indexOf(opponent) + 1);
-                    const oppFrame = frame15.participantFrames[oppPId];
-                    if (oppFrame) {
-                        const myCs = (myFrame.minionsKilled || 0) + (myFrame.jungleMinionsKilled || 0);
-                        const oppCs = (oppFrame.minionsKilled || 0) + (oppFrame.jungleMinionsKilled || 0);
-                        result.csDiff15 = myCs - oppCs;
-                        result.goldDiff15 = (myFrame.totalGold || 0) - (oppFrame.totalGold || 0);
-                        result.xpDiff15 = (myFrame.xp || 0) - (oppFrame.xp || 0);
-                    }
+            // laneOpponent is resolved once above (same position, enemy team)
+            if (myFrame && laneOpponent) {
+                const oppPId = laneOpponent.participantId || (participants.indexOf(laneOpponent) + 1);
+                const oppFrame = frame15.participantFrames[oppPId];
+                if (oppFrame) {
+                    const myCs = (myFrame.minionsKilled || 0) + (myFrame.jungleMinionsKilled || 0);
+                    const oppCs = (oppFrame.minionsKilled || 0) + (oppFrame.jungleMinionsKilled || 0);
+                    result.csDiff15 = myCs - oppCs;
+                    result.goldDiff15 = (myFrame.totalGold || 0) - (oppFrame.totalGold || 0);
+                    result.xpDiff15 = (myFrame.xp || 0) - (oppFrame.xp || 0);
                 }
             }
         }
+
+        // ── CS at 10 / 15 / 20 minutes ────────────────────────────────────
+        const csAt = (minute) => {
+            const frame = frames.find(f => f.timestamp >= minute * 60 * 1000)
+                || frames[frames.length - 1];
+            const pf = frame && frame.participantFrames && frame.participantFrames[myPId];
+            return pf ? (pf.minionsKilled || 0) + (pf.jungleMinionsKilled || 0) : null;
+        };
+        const durationSec = (info.info ? info.info.gameDuration : info.gameDuration) || 0;
+        if (durationSec >= 10 * 60) result.cs10 = csAt(10);
+        if (durationSec >= 15 * 60) result.cs15 = csAt(15);
+        if (durationSec >= 20 * 60) result.cs20 = csAt(20);
 
         // === Isolated Deaths ===
         // Deaths where no teammate is within 1500 units and no objective taken within 15s
         let isolatedCount = 0;
         const allEvents = frames.flatMap(f => f.events || []);
+
+        // ── Early deaths and shutdown bounties, from kill events ──────────
+        let earlyDeaths = 0, shutdownsClaimed = 0, shutdownsGiven = 0, bountyGiven = 0;
+        for (const e of allEvents) {
+            if (e.type !== 'CHAMPION_KILL') continue;
+            if (e.victimId === myPId) {
+                if (e.timestamp < 10 * 60 * 1000) earlyDeaths++;
+                if (e.bounty && e.bounty > 300) { shutdownsGiven++; bountyGiven += e.bounty; }
+            }
+            if (e.killerId === myPId && e.bounty && e.bounty > 300) shutdownsClaimed++;
+        }
+        result.deathsBefore10      = earlyDeaths;
+        result.shutdownsClaimed    = shutdownsClaimed;
+        result.shutdownsGiven      = shutdownsGiven;
+        result.shutdownBountyGiven = bountyGiven;
         const killEvents = allEvents.filter(e => e.type === 'CHAMPION_KILL');
         const objectiveEvents = allEvents.filter(e =>
             e.type === 'ELITE_MONSTER_KILL' || e.type === 'BUILDING_KILL'
@@ -621,10 +811,6 @@ async function backfillTimelines(onProgress) {
         }
 
         if (onProgress) onProgress(i + 1, rows.length);
-
-        // Respect rate limits - single request at a time with delay
-        if (i < rows.length - 1) {
-        }
     }
 
     console.log(`Backfill complete: ${updated} updated, ${failed} failed out of ${rows.length}`);
@@ -647,8 +833,8 @@ async function backfillAdvancedStats(onProgress) {
     for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
         try {
-            const rawData = decompressJson(row.rawJson);
-            const tlData = decompressJson(row.timelineJson);
+            const rawData = await decompressJsonAsync(row.rawJson);
+            const tlData = await decompressJsonAsync(row.timelineJson);
             const stats = computeAdvancedStatsForMatch(rawData, tlData, row.championName, row.teamId);
             await dbRun(
                 `UPDATE matches SET csDiff15 = ?, goldDiff15 = ?, xpDiff15 = ?, firstBlood = ?, dmgGoldRatio = ?, isolatedDeaths = ?, objectiveRate = ? WHERE matchId = ?`,
@@ -719,13 +905,17 @@ async function getMatchParticipantRanks(matchId) {
 
     const data = decompressJson(match.rawJson);
     const participants = data.info.participants;
-    const rankMap = {};
 
-    for (const p of participants) {
-        if (p.puuid) {
-            const rank = await dbGet("SELECT * FROM player_ranks WHERE puuid = ?", [p.puuid]);
-            rankMap[p.puuid] = rank || null;
-        }
+    const puuids = participants.map(p => p.puuid).filter(Boolean);
+    const rankMap = {};
+    for (const puuid of puuids) rankMap[puuid] = null;
+
+    if (puuids.length > 0) {
+        const rows = await dbAll(
+            `SELECT * FROM player_ranks WHERE puuid IN (${puuids.map(() => '?').join(',')})`,
+            puuids
+        );
+        for (const row of rows) rankMap[row.puuid] = row;
     }
 
     return rankMap;
@@ -735,13 +925,16 @@ async function getMatchParticipantRanks(matchId) {
 async function fetchRanksForNewMatches(matchIds, onProgress) {
     if (!matchIds || matchIds.length === 0) return { fetched: 0, failed: 0, total: 0 };
 
-    // Collect unique PUUIDs from the new matches
+    // Collect unique PUUIDs from the new matches (batched blob fetch)
     const allPuuids = new Set();
-    for (const matchId of matchIds) {
-        const match = await dbGet("SELECT rawJson FROM matches WHERE matchId = ?", [matchId]);
-        if (match && match.rawJson) {
+    for (const ids of chunk(matchIds, SQL_VAR_LIMIT)) {
+        const rows = await dbAll(
+            `SELECT rawJson FROM matches WHERE matchId IN (${ids.map(() => '?').join(',')}) AND rawJson IS NOT NULL`,
+            ids
+        );
+        for (const row of rows) {
             try {
-                const data = decompressJson(match.rawJson);
+                const data = decompressJson(row.rawJson);
                 for (const p of data.info.participants) {
                     if (p.puuid && p.puuid.length >= 40) allPuuids.add(p.puuid);
                 }
@@ -749,16 +942,17 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
         }
     }
 
-    // Filter out those already cached within TTL
-    const puuidsToFetch = [];
+    // Filter out those already cached within TTL (one batched query)
     const cutoff = Date.now() - RANK_CACHE_TTL_MS;
-    for (const puuid of allPuuids) {
-        const cached = await dbGet(
-            "SELECT fetchedAt FROM player_ranks WHERE puuid = ? AND fetchedAt > ?",
-            [puuid, cutoff]
+    const freshPuuids = new Set();
+    for (const ids of chunk([...allPuuids], SQL_VAR_LIMIT)) {
+        const rows = await dbAll(
+            `SELECT puuid FROM player_ranks WHERE fetchedAt > ? AND puuid IN (${ids.map(() => '?').join(',')})`,
+            [cutoff, ...ids]
         );
-        if (!cached) puuidsToFetch.push(puuid);
+        for (const row of rows) freshPuuids.add(row.puuid);
     }
+    const puuidsToFetch = [...allPuuids].filter(p => !freshPuuids.has(p));
 
     if (puuidsToFetch.length === 0) {
         console.log('All player ranks for new matches are already cached.');
@@ -787,40 +981,22 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
         }
 
         if (onProgress) onProgress(i + 1, puuidsToFetch.length);
-
-        if (i < puuidsToFetch.length - 1) {
-        }
     }
 
     console.log(`Rank fetch complete: ${fetched} fetched, ${failed} failed`);
     return { fetched, failed, total: puuidsToFetch.length };
 }
 
-// Get per-day stats for the activity calendar heatmap.
-// Pass an array of queueIds to restrict to specific game modes.
-async function getDailyStats(queueIds = null) {
-    const where = queueIds && queueIds.length > 0
-        ? `WHERE queueId IN (${queueIds.map(() => '?').join(',')})`
-        : '';
-    const params = queueIds && queueIds.length > 0 ? queueIds : [];
-    return dbAll(`
-        SELECT
-            date(gameCreation / 1000, 'unixepoch', 'localtime') AS gameDate,
-            COUNT(*)                                             AS gamesPlayed,
-            SUM(CASE WHEN win = 1 THEN 1 ELSE 0 END)           AS wins,
-            SUM(CASE WHEN win = 0 THEN 1 ELSE 0 END)           AS losses,
-            SUM(gameDuration)                                    AS totalDuration
-        FROM matches
-        ${where}
-        GROUP BY gameDate
-        ORDER BY gameDate ASC
-    `, params);
-}
+const {
+    saveLpSnapshot, seedLpSnapshot, getLpHistory,
+    recordLpReading, getLpReadings, attachLpReadingsToMatches,
+    getLpDeltasByMatch, absoluteLp
+} = require('./database');
 
-const { saveLpSnapshot, seedLpSnapshot, getLpHistory } = require('./database');
-
-module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, getDailyStats, fetchRanksForNewMatches, saveLpSnapshot, seedLpSnapshot, getLpHistory,
+module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, seedLpSnapshot, getLpHistory,
+    recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,
-    getCoachingData };
+    getCoachingData, saveComputedStats, backfillComputedStats,
+    computeAdvancedStatsForMatch, COMPUTED_STAT_COLUMNS };
 
 

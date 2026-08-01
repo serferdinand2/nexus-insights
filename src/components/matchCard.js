@@ -61,25 +61,10 @@ function timeAgo(timestamp) {
     return 'Just now';
 }
 
-function formatDuration(seconds) {
-    if (!seconds) return '--:--';
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-}
-
 function formatDamage(dmg) {
     if (!dmg) return '0';
     if (dmg >= 1000) return (dmg / 1000).toFixed(1) + 'k';
     return dmg.toString();
-}
-
-function getPositionName(pos) {
-    const positions = {
-        'TOP': 'TOP', 'JUNGLE': 'JG', 'MIDDLE': 'MID',
-        'BOTTOM': 'ADC', 'UTILITY': 'SUP'
-    };
-    return positions[pos] || pos || '';
 }
 
 // ---------------------------------------------------------------------------
@@ -101,40 +86,8 @@ function getChampionIcon(championName) {
 }
 
 // ---------------------------------------------------------------------------
-// MULTI-KILL & OBJECTIVE BADGES
-// ---------------------------------------------------------------------------
-
-function getMultiKillBadges(match) {
-    const badges = [];
-    if (match.pentaKills  > 0) badges.push(`<span class="multi-kill-badge penta"   data-tooltip="Penta Kill - 5 kills in quick succession (${match.pentaKills}x)">PENTA</span>`);
-    if (match.quadraKills > 0) badges.push(`<span class="multi-kill-badge quadra"  data-tooltip="Quadra Kill - 4 kills in quick succession (${match.quadraKills}x)">QUADRA</span>`);
-    if (match.tripleKills > 0) badges.push(`<span class="multi-kill-badge triple"  data-tooltip="Triple Kill - 3 kills in quick succession (${match.tripleKills}x)">TRIPLE</span>`);
-    if (match.doubleKills > 0) badges.push(`<span class="multi-kill-badge double"  data-tooltip="Double Kill - 2 kills in quick succession (${match.doubleKills}x)">DOUBLE</span>`);
-    return badges.join('');
-}
-
-function getObjectiveBadges(match) {
-    const badges = [];
-    if (match.dragonKills    > 0) badges.push(`<span class="objective-badge dragon"    data-tooltip="Dragons slain by you (${match.dragonKills}x)">DRAGON</span>`);
-    if (match.baronKills     > 0) badges.push(`<span class="objective-badge baron"     data-tooltip="Baron Nashors slain by you (${match.baronKills}x)">BARON</span>`);
-    if (match.turretKills    > 0) badges.push(`<span class="objective-badge tower"     data-tooltip="Turrets destroyed by you (${match.turretKills}x)">TOWER</span>`);
-    if (match.inhibitorKills > 0) badges.push(`<span class="objective-badge inhibitor" data-tooltip="Inhibitors destroyed by you (${match.inhibitorKills}x)">INHIB</span>`);
-    return badges.join('');
-}
-
-// ---------------------------------------------------------------------------
 // ITEM / RUNE / SPELL HTML
 // ---------------------------------------------------------------------------
-
-function renderItems(match) {
-    const items = [match.item0, match.item1, match.item2, match.item3, match.item4, match.item5, match.item6];
-    return items.map(itemId => {
-        if (itemId && itemId > 0) {
-            return `<div class="item-slot has-item"><img src="${window.DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}" onerror="this.style.display='none'"></div>`;
-        }
-        return `<div class="item-slot"></div>`;
-    }).join('');
-}
 
 function renderRunes(match) {
     if (!match.primaryRune && !match.secondaryRuneStyle) {
@@ -193,83 +146,12 @@ function renderSummonerSpells(match) {
     return `<div class="spell-display">${spell1HTML}${spell2HTML}</div>`;
 }
 
-function renderModalItems(match) {
-    const items = [match.item0, match.item1, match.item2, match.item3, match.item4, match.item5, match.item6];
-    return items.map(itemId => {
-        if (itemId && itemId > 0) {
-            return `<div class="modal-item"><img src="${window.DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" onerror="this.parentElement.style.display='none'"></div>`;
-        }
-        return '';
-    }).join('');
-}
-
-// ---------------------------------------------------------------------------
-// MATCH CARD
-// ---------------------------------------------------------------------------
-
-function renderMatchCard(match, index) {
-    const isWin         = match.win === 1;
-    const kda           = match.deaths === 0 ? 'Perfect' : ((match.kills + match.assists) / match.deaths).toFixed(1);
-    const queueName     = (window.QUEUE_NAMES || {})[match.queueId] || 'Game';
-    const multiKills    = getMultiKillBadges(match);
-    const objectiveBadges = getObjectiveBadges(match);
-    const position      = match.teamPosition || match.lane;
-    const positionBadge = position ? `<span class="position-badge ${position}">${getPositionName(position)}</span>` : '';
-    const champIcon     = getChampionIcon(match.championName);
-
-    return `
-                <div class="match-card ${isWin ? 'win' : 'loss'}" onclick="openMatchModal(${index})">
-                    <div class="match-champion">
-                        ${champIcon ? `<img src="${champIcon}" alt="${escapeHtml(match.championName)}" onerror="this.parentElement.textContent='${escapeHtml(match.championName ? match.championName.charAt(0) : '?')}'">` : (match.championName ? match.championName.charAt(0) : '?')}
-                    </div>
-                    <div class="match-info">
-                        <div class="match-primary">
-                            <span class="match-champion-name">${escapeHtml(match.championName || 'Unknown')}</span>
-                            ${positionBadge}
-                            <span class="match-result ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</span>
-                        </div>
-                        <div class="match-secondary">${queueName} · ${formatDuration(match.gameDuration)} · Lvl ${match.champLevel || '?'}</div>
-                        <div class="multi-kills">${multiKills}${objectiveBadges}</div>
-                        <div class="match-items">${renderItems(match)}</div>
-                    </div>
-                    <div class="match-stats">
-                        <div class="match-kda">
-                            <div class="kda-value">${match.kills}/${match.deaths}/${match.assists}</div>
-                            <div class="kda-label">${kda} KDA</div>
-                        </div>
-                        <div class="match-stat-item">
-                            <div class="stat-item-value">${match.totalMinionsKilled || 0}</div>
-                            <div class="stat-item-label">CS</div>
-                        </div>
-                        <div class="match-stat-item">
-                            <div class="stat-item-value">${formatDamage(match.totalDamageDealtToChampions)}</div>
-                            <div class="stat-item-label">DMG</div>
-                        </div>
-                        <div class="match-stat-item">
-                            <div class="stat-item-value">${match.wardsPlaced || 0}</div>
-                            <div class="stat-item-label">Wards</div>
-                        </div>
-                        <div class="match-time">
-                            <div class="time-value">${match.gameCreation ? timeAgo(match.gameCreation) : ''}</div>
-                        </div>
-                    </div>
-                </div>
-            `;
-}
-
 module.exports = {
     RUNE_ICONS,
     timeAgo,
-    formatDuration,
     formatDamage,
-    getPositionName,
     getChampionIcon,
-    getMultiKillBadges,
-    getObjectiveBadges,
-    renderItems,
     renderRunes,
     getSummonerSpellImageName,
-    renderSummonerSpells,
-    renderModalItems,
-    renderMatchCard
+    renderSummonerSpells
 };
