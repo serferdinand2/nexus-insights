@@ -1,7 +1,20 @@
 # Nexus Insights — Project Context
 
-> **Last updated**: 2026-07-24 (post-refactor: config caching, async gunzip, row-by-row migration, remake filters in coaching/getStats, shared rank palette `components/rankTiers.js`, shared `services/paths.js`, dead code pruned incl. the old match modal)
+> **Last updated**: 2026-08-01
 > **Status**: Active development
+>
+> **2026-08 changes**: left nav drawer replaces the top tab bar; game-mode
+> filters moved onto the summoner row; per-match LP tracking (intra-day
+> `lp_history` readings + `matchId` links, migration 3) driven by the League
+> client's Live Client Data API on `127.0.0.1:2999`; close-to-tray and
+> start-with-Windows; **Coaching tab rewritten** around `coachingEngine.js`
+> (input-vs-outcome metric split, role-aware benchmarks, win-rate-gap ranking).
+>
+> **2026-07 refactor**: config caching, async gunzip, row-by-row migration,
+> remake filters in coaching/getStats, shared rank palette
+> `components/rankTiers.js`, shared `services/paths.js`, dead code pruned
+> including the old match modal. The audit that drove it (`AUDIT_ACTION_PLAN.md`)
+> was fully executed and the file removed; it is in git history if needed.
 
 ## What Is This?
 

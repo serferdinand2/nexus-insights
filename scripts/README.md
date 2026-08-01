@@ -100,16 +100,36 @@ node scripts/parity-check.js "D:\backup\nexus_data.sqlite"
 
 ## The other scripts
 
-`coaching_data.js`, `frequent_players.js`, `group_insights.js`,
-`improvement_analysis.js`, `my_stats.js`, `player_rankings.js` and their
-`*_output.json` files are one-off analyses written earlier. They aren't wired
-into anything and aren't maintained.
+```
+npm run diagnose    # "why isn't my latest match showing up?"
+npm run coaching    # what the coaching engine says about you, in full
+npm run cleanup     # remove matches that belong to the wrong account
+```
+
+**diagnose-sync.js** — read-only. Prints the newest matches with how long ago
+each ended, which queues are stored, recent LP readings, and whether the
+migrations ran. Start here when something is missing from the app.
+
+**coaching-report.js** — read-only. Runs the same analysis as the Coaching tab
+but prints the whole ranking rather than just the focus, so you can judge
+whether the ordering makes sense before trusting the UI.
+
+**cleanup-matches.js** — the only script that writes. Removes matches synced
+while Settings pointed at the wrong Riot ID, since the `matches` table records
+your row of a game but not which summoner it came from. Backs the database up
+before every change. Close the app first.
+
+> Six earlier one-off analyses (`my_stats.js`, `player_rankings.js`,
+> `group_insights.js`, `frequent_players.js`, `improvement_analysis.js`,
+> `coaching_data.js`) were deleted in August 2026. They were unmaintained,
+> nothing referenced them, and their useful parts now live in
+> `coachingEngine.js`. They remain in git history if ever needed.
 
 ---
 
 ## Related
 
-- `npm test` — unit tests for the stat calculators, the rate limiter and HTML
-  escaping. Fast, no database needed. Run these too.
+- `npm test` — unit tests for the stat calculators, the rate limiter, HTML
+  escaping and the coaching engine. Fast, no database needed. Run these too.
 - `CLAUDE.md` — architecture notes, including the two traps the parity harness
   exists to catch.

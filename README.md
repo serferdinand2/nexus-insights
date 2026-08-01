@@ -71,10 +71,11 @@ that folder while the app is **closed**.
 
 ### What is *not* used
 
-- **There is no `.env`.** The app never read one — `.env.example` is kept only
-  as documentation. The API key lives in `config.json` and is set through the
-  Settings dialog. If you edit a `.env` expecting it to change the key, nothing
-  will happen.
+- **There is no `.env`.** The app never read one. The API key lives in
+  `config.json` and is set through the Settings dialog. If you create a `.env`
+  expecting it to change the key, nothing will happen. (`.env.example` used to
+  sit in this folder purely as documentation and was removed in August 2026 —
+  it implied a mechanism that doesn't exist.)
 
 ---
 
