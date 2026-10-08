@@ -27,6 +27,7 @@ window.require('./components/calendarPanel'); // registers initCalendar, renderL
 window.require('./components/filtersPanel'); // registers applyFilters, toggleAllFilters, clearGameModeFilters
 window.require('./components/coachingPanel'); // registers renderCoachingPanel
 window.require('./components/windowControls'); // registers initWindowControls
+window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
 
 // Destructure named exports needed inside renderer.js itself
 const {
@@ -919,6 +920,7 @@ const TOP_TABS = {
     analytics: { panel: 'analytics-tab', nav: 'navAnalytics' },
     history:   { panel: 'history-tab',   nav: 'navHistory'   },
     coaching:  { panel: 'coaching-tab',  nav: 'navCoaching'  },
+    chat:      { panel: 'chat-tab',      nav: 'navChat'      },
 };
 
 window.switchTopTab = function (tab) {
@@ -943,60 +945,27 @@ window.switchTopTab = function (tab) {
             window.renderCoachingPanel();
         }
     }
+
+    if (tab === 'chat' && typeof window.openChatPanel === 'function') {
+        window.openChatPanel();
+    }
 };
 
 
 /* ============================================================
-   LEFT NAV DRAWER
-   Hidden by default; the arrow tab opens it. Closes on: picking
-   a section, clicking the backdrop, or Escape. The `.open` class
-   drives the CSS transform on all three elements at once.
+   LEFT NAV RAIL
+   Permanent button strip down the left edge (replaced the
+   slide-out drawer, 2026-10). The old drawer functions stay as
+   no-ops so existing callers like switchTopTab keep working.
    ============================================================ */
-function navDrawerEls() {
-    return {
-        drawer:   document.getElementById('navDrawer'),
-        arrow:    document.getElementById('navArrow'),
-        backdrop: document.getElementById('navBackdrop'),
-    };
-}
-
-window.isNavDrawerOpen = function () {
-    const { drawer } = navDrawerEls();
-    return !!drawer && drawer.classList.contains('open');
-};
-
-function setNavDrawer(open) {
-    const { drawer, arrow, backdrop } = navDrawerEls();
-    for (const el of [drawer, arrow, backdrop]) {
-        if (el) el.classList.toggle('open', open);
-    }
-    if (arrow) {
-        arrow.setAttribute('aria-expanded', String(open));
-        arrow.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
-    }
-    // Move focus into the drawer so keyboard users land where they opened
-    if (open && drawer) {
-        const first = drawer.querySelector('.nav-drawer-btn.active') ||
-                      drawer.querySelector('.nav-drawer-btn');
-        if (first) first.focus();
-    }
-}
-
-window.openNavDrawer   = function () { setNavDrawer(true); };
-window.closeNavDrawer  = function () { setNavDrawer(false); };
-window.toggleNavDrawer = function () { setNavDrawer(!window.isNavDrawerOpen()); };
+window.isNavDrawerOpen = function () { return false; };
+window.openNavDrawer   = function () {};
+window.closeNavDrawer  = function () {};
+window.toggleNavDrawer = function () {};
 
 
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    // The drawer is the shallower layer — close it first, and only fall
-    // through to the setup modal when the drawer is already shut.
-    if (window.isNavDrawerOpen()) {
-        window.closeNavDrawer();
-        const arrow = document.getElementById('navArrow');
-        if (arrow) arrow.focus();
-        return;
-    }
     hideSetupModal();
 });
 

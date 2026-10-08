@@ -465,3 +465,37 @@ Two traps, both found by the parity harness:
    `calcEconomy` builds its array in percent and `calcCombat` in fractions.
    Death share is stored as `enemyTeamKills` rather than a ratio, so the
    calculator keeps dividing the authoritative `deaths` column.
+
+### Left nav rail — 2026-10
+
+The sliding drawer is gone. `#navDrawer` carries `nav-rail` and is always
+visible (78px, `--nav-rail-width`; `body` is padded by that). Buttons stack
+icon over label. `openNavDrawer/closeNavDrawer/toggleNavDrawer` in renderer.js
+are kept as no-ops so older callers don't break. Pages: Analytics, Match
+History, Coaching, Chat (`TOP_TABS` in renderer.js).
+
+### Chat page (Ollama) — 2026-10
+
+Chat with your match data using a **local** Ollama model (default `qwen3:8b`)
+at `http://127.0.0.1:11434`. The model never computes a number: it calls tools
+and the app answers with values from the same formulas as the stat cards.
+
+| File | Role |
+|------|------|
+| `services/ollama.js` | Node `http` client (no CORS): `listModels()`, streaming `chat()` with tools/think/abort. ECONNREFUSED → `OLLAMA_DOWN` |
+| `components/chatTools.js` | 8 tools (`get_overview`, `get_category_stats`, `get_stat_trend`, `get_champion_stats`, `get_role_stats`, `get_recent_games`, `get_rank_and_lp`, `get_coaching_focus`); shared filters queue/champion/role/since/until/last_n_games. `executeTool` never throws |
+| `components/chatAgent.js` | Tool-calling loop (`MAX_ROUNDS` 5, repeated calls cached, last round forces an answer), system prompt, `trimHistory` |
+| `components/markdown.js` | Escape-first Markdown → HTML (model output can't inject tags) |
+| `components/chatPanel.js` | UI; `window.openChatPanel()` called by `switchTopTab('chat')`, re-checks Ollama each open |
+
+- Tool context uses `excludeRemakes(window.matchesData)`, so the chat sees
+  exactly what the cards see. "Ranked" means Solo/Duo unless Flex is asked.
+- `options: { num_ctx: 8192, temperature: 0.4 }` — the default context
+  silently drops the system prompt once tool results pile up.
+- `think`: qwen3 gets `false` unless "Think harder" is ticked (much faster).
+- Model choice + think toggle persist in localStorage (`nexus.chatModel`,
+  `nexus.chatThink`). Cloud models (`…:cloud` / `-cloud`) are listed last and
+  the footer warns that data leaves the PC.
+- Tests: `chatTools`, `ollama` (fake HTTP server), `chatAgent`, `markdown` (XSS).
+  `chatPanel.js` itself needs Electron + sqlite and is checked by hand.
+- **If you add a tool**, add its schema to `TOOLS` and a `describeCall` label.

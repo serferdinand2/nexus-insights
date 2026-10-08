@@ -33,20 +33,10 @@
         </div>
     </div>
 
-    <!-- Left navigation drawer — hidden by default, opened by the arrow tab.
-         Overlays the page rather than pushing it, so the LP canvases and stat
-         cards never re-layout on toggle. -->
-    <button class="nav-arrow" id="navArrow" onclick="toggleNavDrawer()"
-            title="Menu" aria-label="Open navigation" aria-expanded="false" aria-controls="navDrawer">
-        <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-            <path d="M4.5 1.5L10 7l-5.5 5.5" fill="none" stroke="currentColor"
-                  stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-    </button>
-
-    <div class="nav-backdrop" id="navBackdrop" onclick="closeNavDrawer()"></div>
-
-    <nav class="nav-drawer" id="navDrawer" aria-label="Sections">
+    <!-- Left navigation rail — always visible down the left edge, between the
+         window border and the page. (Replaced the slide-out drawer.) The
+         body is padded by --nav-rail-width so content never sits under it. -->
+    <nav class="nav-drawer nav-rail" id="navDrawer" aria-label="Sections">
         <button class="nav-drawer-btn active" id="navAnalytics" onclick="switchTopTab('analytics')">
             <span class="nav-icon">📊</span><span class="nav-text">Analytics</span>
         </button>
@@ -57,6 +47,9 @@
         <button class="nav-drawer-btn" id="navCoaching" onclick="switchTopTab('coaching')">
             <span class="nav-icon">🎯</span><span class="nav-text">Coaching</span>
             <span class="nav-badge" id="coachingBadge"></span>
+        </button>
+        <button class="nav-drawer-btn" id="navChat" onclick="switchTopTab('chat')">
+            <span class="nav-icon">💬</span><span class="nav-text">Chat</span>
         </button>
     </nav>
 
@@ -495,6 +488,37 @@
                     <p>Loading coaching data...</p>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Chat Tab — talk to a local Ollama model about the stored matches.
+         Driven by components/chatPanel.js; the model gets its numbers only
+         from components/chatTools.js. -->
+    <div id="chat-tab" style="display:none;">
+        <div class="chat-shell">
+            <div class="chat-header">
+                <div>
+                    <h2 class="chat-title">Chat with your matches</h2>
+                    <p class="chat-sub">Ask anything about your games. Every number comes from your stored matches.</p>
+                </div>
+                <div class="chat-controls">
+                    <span class="chat-status" id="chatStatus"><i></i><span>Checking Ollama…</span></span>
+                    <select id="chatModel" class="chat-model" title="Model" aria-label="Model"></select>
+                    <label class="chat-think" title="Slower, but the model reasons more carefully before answering">
+                        <input type="checkbox" id="chatThink"> Think harder
+                    </label>
+                    <button class="chat-btn" id="chatNew" type="button">New chat</button>
+                </div>
+            </div>
+
+            <div class="chat-messages" id="chatMessages" aria-live="polite"></div>
+
+            <form class="chat-composer" id="chatForm" autocomplete="off">
+                <textarea id="chatInput" rows="1"
+                          placeholder="Ask about your games…" title="Enter to send · Shift+Enter for a new line"></textarea>
+                <button type="submit" class="chat-send" id="chatSend">Send</button>
+            </form>
+            <div class="chat-foot" id="chatFoot"></div>
         </div>
     </div>
 
