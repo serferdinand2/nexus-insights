@@ -24,7 +24,9 @@ const SYNC_COOLDOWN_SECONDS = 120; // matches Riot's 2-minute rate-limit window
 // STATUS HELPER (forwards to renderer's showToast)
 // ---------------------------------------------------------------------------
 function updateStatus(type, title, message) {
-    window.showToast(title, message, type === 'error' ? 5000 : 3000);
+    // Errors carry instructions (e.g. how to renew an expired key) — give them
+    // long enough to actually be read.
+    window.showToast(title, message, type === 'error' ? 9000 : 3000);
 }
 
 // ---------------------------------------------------------------------------
@@ -196,8 +198,20 @@ window.handleSync = async function (options = {}) {
             updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`);
         }
 
+        // Every sync — manual click or the post-game auto-sync — is also a
+        // chance to catch LP the watcher missed. The post-game retry loop can
+        // give up early (a new game starting, a slow Riot response, a thrown
+        // error mid-retry) and leave a game with no reading at all; the old
+        // code here only re-linked readings that already existed, which does
+        // nothing if the capture itself never happened. Fetching fresh here
+        // means "Sync Matches" alone is enough to backfill a missed game.
+        try {
+            if (typeof window.captureLpReadings === 'function') await window.captureLpReadings();
+        } catch (e) { console.warn('LP capture on sync failed:', e.message); }
+
         // Readings taken before their match was synced have no match to point
         // at yet. Now that the games are in the DB, they can be attributed.
+        // (Also covers readings captureLpReadings() above didn't newly touch.)
         try {
             const { linked } = await attachLpReadingsToMatches();
             if (linked > 0) {
@@ -220,7 +234,14 @@ window.handleSync = async function (options = {}) {
         hideProgress();
 
         let errorMessage = err.message;
-        if      (err.response?.status === 403) errorMessage = 'Invalid or expired API key';
+        // Riot answers 401 for a malformed/unknown key (e.g. pasted with a
+        // stray space) and 403 for an expired one. Development keys expire
+        // every 24 hours, so this is the error a new user hits most — say
+        // what to do, not just what went wrong.
+        if (err.response?.status === 401 || err.response?.status === 403) {
+            errorMessage = 'Riot API key invalid or expired. Development keys last 24 hours: ' +
+                           'get a new one at developer.riotgames.com and paste it in Settings (⚙).';
+        }
         else if (err.response?.status === 404) errorMessage = 'Player not found. Check your Riot ID';
         else if (err.response?.status === 429) errorMessage = 'Rate limited. Please wait a moment';
 

@@ -22,6 +22,9 @@ function game(overrides = {}) {
         detectorWardsPlaced: 4,
         cs10: 62,
         goldDiff15: 0,
+        xpDiff15: 0,
+        soloKillDiff: 0,
+        objectiveRate: 50,
         visionScore: 38,
         teamDragons: 2, teamBarons: 1, turretKills: 2,
         firstBlood: 0,
@@ -109,6 +112,24 @@ test('role decides which benchmark applies, and CS is skipped for support', () =
 
     const cw = support.allInputs.find(m => m.id === 'controlWards');
     assert.strictEqual(cw.target, 6, 'support control ward target is higher than jungle');
+});
+
+test('jungle-relevant lane stats get jungle-specific targets, and solo kills skip support', () => {
+    const jungle = Engine.analyse(Array.from({ length: 40 }, () => game({ teamPosition: 'JUNGLE' })));
+    const objRate = jungle.allInputs.find(m => m.id === 'objectiveRate');
+    const solo    = jungle.allInputs.find(m => m.id === 'soloKillDiff');
+    const gold    = jungle.allInputs.find(m => m.id === 'goldDiff15');
+    assert.strictEqual(objRate.target, 55, 'jungle has the highest objective-presence bar');
+    assert.strictEqual(solo.target, 0.15, 'jungle solo-kill target reflects ganks, not lane duels');
+    assert.strictEqual(gold.target, 0, 'jungle gold@15 target is parity with the enemy jungler');
+
+    const top = Engine.analyse(Array.from({ length: 40 }, () => game({ teamPosition: 'TOP' })));
+    const topObjRate = top.allInputs.find(m => m.id === 'objectiveRate');
+    assert.ok(topObjRate.target < objRate.target, 'top lane has a lower objective-presence bar than jungle');
+
+    const support = Engine.analyse(Array.from({ length: 40 }, () =>
+        game({ teamPosition: 'UTILITY', championName: 'Nautilus' })));
+    assert.ok(!support.allInputs.some(m => m.id === 'soloKillDiff'), 'support is not judged on solo kills');
 });
 
 test('tilt flag only counts losses within one session', () => {

@@ -24,3 +24,8 @@
 *.node  binary
 *.gz    binary
 *.tar.gz binary
+
+# Windows batch files must keep CRLF or cmd.exe can misparse them
+*.bat   text eol=crlf
+*.vbs   text eol=crlf
+*.ps1   text eol=crlf

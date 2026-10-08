@@ -13,12 +13,48 @@ function getApiKey() {
     return loadConfig().apiKey;
 }
 
-function getRegion() {
-    return loadConfig().region || 'europe';
-}
+/**
+ * Which regional cluster serves Match-V5 for each platform (server).
+ *
+ * This is fixed by Riot, so it is derived from the platform rather than asked
+ * for separately. Asking separately let the two disagree — an NA player who
+ * changed the server to NA but left the region on the default Europe got an
+ * empty match list with no error — and the old region list had no "sea" at
+ * all, so OCE/PH/SG/TH/TW/VN players could never sync.
+ */
+const PLATFORM_ROUTING = {
+    na1: 'americas', br1: 'americas', la1: 'americas', la2: 'americas',
+    euw1: 'europe',  eun1: 'europe',  tr1: 'europe',   ru: 'europe', me1: 'europe',
+    kr: 'asia',      jp1: 'asia',
+    oc1: 'sea', ph2: 'sea', sg2: 'sea', th2: 'sea', tw2: 'sea', vn2: 'sea',
+};
 
 function getPlatform() {
     return loadConfig().platform || 'euw1';
+}
+
+/** Pure: Match-V5 routing for a platform, or `fallback` if it's unknown. */
+function routingFor(platform, fallback = 'europe') {
+    return PLATFORM_ROUTING[platform] || fallback;
+}
+
+/**
+ * Pure: Account-V1 routing for a platform. Account-V1 is served from
+ * americas/asia/europe only (not sea), and any of them can look up any
+ * account — so SEA players use asia.
+ */
+function accountRoutingFor(platform, fallback = 'europe') {
+    const r = routingFor(platform, fallback);
+    return r === 'sea' ? 'asia' : r;
+}
+
+/** Match-V5 routing: derived from the platform; config.region only as a fallback. */
+function getRegion() {
+    return routingFor(getPlatform(), loadConfig().region || 'europe');
+}
+
+function getAccountRegion() {
+    return accountRoutingFor(getPlatform(), loadConfig().region || 'europe');
 }
 
 /**
@@ -105,8 +141,8 @@ async function getMatchTimeline(matchId) {
 
 // Get PUUID from Riot ID (gameName#tagLine)
 async function getPuuidByRiotId(gameName, tagLine) {
-    const REGION = getRegion();
-    // Account-v1 uses regional routing (americas, europe, asia)
+    // Account-v1 uses regional routing, but only americas/europe/asia exist
+    const REGION = getAccountRegion();
     const url = `https://${REGION}.api.riotgames.com/riot/account/v1/accounts/by-riot-id/`
         + `${encodeURIComponent(gameName)}/${encodeURIComponent(tagLine)}`;
 
@@ -172,4 +208,5 @@ module.exports = {
     getMatchIds, getMatchData, getMatchTimeline,
     getPuuidByRiotId, getSummonerByPuuid, getLeagueByPuuid,
     limiter,
+    PLATFORM_ROUTING, routingFor, accountRoutingFor,
 };

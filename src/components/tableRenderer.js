@@ -204,7 +204,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
 function renderLpDelta(matchId) {
     const delta = window.lpDeltas ? window.lpDeltas[matchId] : undefined;
     if (delta === undefined || delta === null) {
-        return '<span class="lp-delta lp-delta--unknown" title="No LP reading for this game">—</span>';
+        return '<span class="lp-delta lp-delta--unknown" title="LP tracking only covers games played with Nexus Insights (and the League client) open — Riot doesn\'t expose LP history, so older games can\'t be backfilled.">—</span>';
     }
     const cls  = delta > 0 ? 'lp-delta--gain' : (delta < 0 ? 'lp-delta--loss' : 'lp-delta--flat');
     const sign = delta > 0 ? '+' : '';
@@ -267,7 +267,7 @@ function renderMatchTable(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getCh
                         <th class="center">Level</th>
                         <th class="center">Duration</th>
                         <th class="center">Result</th>
-                        <th class="center">LP</th>
+                        <th class="center" title="LP gained or lost on this game. Only populated for games played with the app open — see the column for why.">LP</th>
                         <th class="center">K</th>
                         <th class="center">D</th>
                         <th class="center">A</th>

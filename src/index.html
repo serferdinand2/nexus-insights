@@ -72,12 +72,15 @@
                      the Match History page, which is why they live here. -->
                 <div class="input-group">
                     <div class="input-wrapper">
-                        <label class="input-label" for="gameName">Summoner Name</label>
-                        <input type="text" id="gameName" class="input-field" placeholder="Name">
+                        <!-- Labels are sr-only: nothing else on this row is
+                             labelled, and the placeholders already say what the
+                             fields are. Screen readers still get the name. -->
+                        <label class="sr-only" for="gameName">Summoner Name</label>
+                        <input type="text" id="gameName" class="input-field" placeholder="Summoner Name">
                     </div>
                     <div class="input-separator">#</div>
                     <div class="input-wrapper tag-input">
-                        <label class="input-label" for="tagLine">Tag</label>
+                        <label class="sr-only" for="tagLine">Tag</label>
                         <input type="text" id="tagLine" class="input-field" placeholder="Tag">
                     </div>
 
@@ -164,6 +167,32 @@
                     <!-- We will inject the stat cards here. Ranked cards are handled inside renderer.js -->
                     <div class="unified-stats-grid" id="analyticsCardsContainer">
                         <!-- Cards will be dynamically inserted here -->
+                    </div>
+
+                    <!-- Stat history: slides open when a card with a green dot is
+                         clicked. One point per month, last 12 months, current filters.
+                         Driven by components/statHistory.js -->
+                    <div class="stat-history-panel" id="statHistoryPanel" aria-hidden="true">
+                        <div class="stat-history-clip">
+                            <div class="stat-history-card">
+                                <div class="stat-history-header">
+                                    <div>
+                                        <div class="stat-history-title" id="statHistoryTitle"></div>
+                                        <div class="stat-history-sub" id="statHistorySub"></div>
+                                    </div>
+                                    <div class="stat-history-legend">
+                                        <span><i class="sh-dot"></i>month average</span>
+                                        <span><i class="sh-dot sh-dot--hollow"></i>under 5 games</span>
+                                        <button class="stat-history-close" id="statHistoryClose"
+                                                type="button" title="Close" aria-label="Close history">&times;</button>
+                                    </div>
+                                </div>
+                                <div class="stat-history-chart">
+                                    <canvas id="statHistoryCanvas" class="stat-history-canvas"></canvas>
+                                    <div class="stat-history-tip" id="statHistoryTip" role="tooltip"></div>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Hidden Persistent Rank Container -->
@@ -351,16 +380,8 @@
                     </div>
                     <div class="setup-row">
                         <div class="setup-field">
-                            <label class="setup-label" for="setupRegion">Region</label>
-                            <select id="setupRegion" class="setup-input">
-                                <option value="europe">Europe</option>
-                                <option value="americas">Americas</option>
-                                <option value="asia">Asia</option>
-                            </select>
-                        </div>
-                        <div class="setup-field">
-                            <label class="setup-label" for="setupPlatform">Platform</label>
-                            <select id="setupPlatform" class="setup-input">
+                            <label class="setup-label" for="setupPlatform">Server</label>
+                            <select id="setupPlatform" class="setup-input" onchange="syncRegionToPlatform()">
                                 <option value="euw1">EUW</option>
                                 <option value="eun1">EUNE</option>
                                 <option value="na1">NA</option>
@@ -371,12 +392,25 @@
                                 <option value="oc1">OCE</option>
                                 <option value="tr1">TR</option>
                                 <option value="ru">RU</option>
+                                <option value="me1">ME</option>
                                 <option value="jp1">JP</option>
                                 <option value="ph2">PH</option>
                                 <option value="sg2">SG</option>
                                 <option value="th2">TH</option>
                                 <option value="tw2">TW</option>
                                 <option value="vn2">VN</option>
+                            </select>
+                        </div>
+                        <div class="setup-field">
+                            <!-- Set automatically from the server: Riot's routing is fixed per
+                                 server, and choosing it separately let the two disagree. -->
+                            <label class="setup-label" for="setupRegion">Region (automatic)</label>
+                            <select id="setupRegion" class="setup-input" disabled
+                                    title="Set automatically from your server">
+                                <option value="europe">Europe</option>
+                                <option value="americas">Americas</option>
+                                <option value="asia">Asia</option>
+                                <option value="sea">SEA / Oceania</option>
                             </select>
                         </div>
                     </div>

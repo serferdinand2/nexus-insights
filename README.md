@@ -19,8 +19,49 @@ On first launch the setup dialog asks for a Riot API key, your Riot ID
 
 ```
 npm test     # unit tests
-npm run build # Windows installer into dist/
+npm run dist # clean, shareable Windows installer into dist/
 ```
+
+---
+
+## Sharing it with someone else
+
+**Double-click `Build Installer.bat`** (or run `npm run dist`). After a minute
+or two it opens `dist\` with `Nexus Insights Setup 1.0.0.exe` in it. Send that
+one file.
+
+The installer is a **completely fresh copy**: no API key, no Riot ID, no matches,
+no LP history. Those all live in `%APPDATA%\nexus-insights` on *your* PC and are
+never packaged. The one piece of personal data in the source (your hardcoded LP
+history in `calendarPanel.js`) is stripped during the build and put back
+afterwards, so your own app is unaffected. The script refuses to build if it
+can't find that data to strip.
+
+Use `npm run dist`, not `npm run build`. Plain `build` skips the strip.
+
+`dist\Nexus Insights - portable.zip` is a no-install alternative: unzip it, run
+`Nexus Insights.exe`. It was built from the same cleaned source.
+
+### What to tell the person you send it to
+
+1. **Windows will warn** "Windows protected your PC", because the app isn't
+   code-signed (a certificate costs money yearly). Click **More info → Run
+   anyway**.
+2. On first launch it asks for a **Riot API key** (from
+   https://developer.riotgames.com, sign in and copy the key), their
+   **Riot ID** (`Name` + `#Tag`), and their **server** (EUW, NA, KR…). The
+   region fills itself in from the server. Then **Sync Matches**.
+3. **Development keys expire every 24 hours.** When sync says "API key
+   invalid or expired", they generate a new key and paste it in Settings
+   (gear icon, top right).
+   For a key that lasts, Riot offers a *Personal API Key* application on the
+   same site.
+4. The first sync downloads their whole season and is slow on purpose. Riot
+   allows 100 requests per 2 minutes, and each match takes at least two
+   (match + timeline), so it's at most about 50 matches every 2 minutes.
+5. By default the app **starts with Windows and closes to the tray**, because
+   it has to be running to record LP changes. Both can be turned off in
+   Settings.
 
 ---
 

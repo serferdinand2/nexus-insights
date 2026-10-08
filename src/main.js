@@ -37,6 +37,10 @@ const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico');
 // source. Kept as a constant so enabling and disabling can't drift apart.
 const STARTUP_SHIM = 'Nexus Insights.vbs';
 
+// Registry value name used by the installed build's "Start with Windows".
+// Must match the DeleteRegValue in installer/installer.nsh.
+const LOGIN_ITEM_NAME = 'Nexus Insights';
+
 function startupFolderPath() {
   return path.join(
     process.env.APPDATA || '',
@@ -96,7 +100,12 @@ function applyLoginItemSetting(enabled) {
       app.setLoginItemSettings({
         openAtLogin:  !!enabled,
         openAsHidden: !!enabled,
-        args: enabled ? ['--hidden'] : []
+        args: enabled ? ['--hidden'] : [],
+        // Fixed registry value name (HKCU\...\Run). Without it Electron uses
+        // the AppUserModelId, which isn't predictable — and the uninstaller
+        // (installer/installer.nsh) needs to know the exact name to remove
+        // the entry, or Windows keeps trying to launch a deleted program.
+        name: LOGIN_ITEM_NAME
       });
       return;
     }
@@ -173,6 +182,10 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    // Content tops out around ~1000px tall (Overview tab, calendar + charts
+    // + footer). Without a cap, maximizing on a tall monitor left a growing
+    // blank gap below the footer since nothing in the page fills that space.
+    maxHeight: 1100,
 
     // Taskbar / alt-tab icon. Frameless windows have no title bar to show it,
     // but Windows still uses it everywhere else.

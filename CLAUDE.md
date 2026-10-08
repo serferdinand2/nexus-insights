@@ -341,6 +341,39 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 
 ## Notes
 
+### Distribution (shareable installer) — 2026-10
+
+- **Build with `npm run dist` / `Build Installer.bat`, never plain `npm run build`.**
+  `scripts/build-installer.js` temporarily blanks `SOLO_LP_SEED` (the owner's
+  hardcoded LP history in `calendarPanel.js`) and the Gold I flex starter point,
+  runs electron-builder, then restores the file. It refuses to build if it can't
+  find the seed. Plain `build` would ship the owner's rank history.
+- Build config: `npmRebuild: false` (sqlite3 in node_modules is already built for
+  this Electron; rebuilding needs Python + MSVC), `electronDist` = the local
+  Electron, `asarUnpack` `**/*.node`, NSIS `include: installer/installer.nsh`.
+- `installer/installer.nsh` removes the HKCU `Run` value **"Nexus Insights"** on
+  uninstall (not on upgrade). That name must match `LOGIN_ITEM_NAME` in main.js,
+  which is passed as `name` to `setLoginItemSettings` in the packaged branch.
+- `paths.js` creates the data folder on require. `database.js` opens SQLite at
+  require time — in the main process that is before `ready`, so on a fresh PC
+  the folder didn't exist yet. Main also builds the path from
+  `appData + 'nexus-insights'` (not `getPath('userData')`) so it can never drift
+  from the renderer's hardcoded name.
+- **Region is derived from the server, not chosen.** `riotApi.PLATFORM_ROUTING`
+  maps platform → Match-V5 cluster (incl. `sea` for OCE/PH/SG/TH/TW/VN, which the
+  old dropdown lacked). Account-V1 has no `sea`, so `accountRoutingFor` uses
+  `asia` there. The setup Region box is disabled and just mirrors the server.
+  `test/riotRouting.test.js` fails if a server is added to the dropdown without
+  a routing.
+- Sync shows an actionable message for 401 *and* 403 (dev keys expire every
+  24h — the most common error a new user hits).
+- The sandbox the assistant runs in **cannot** build the NSIS installer: GitHub's
+  release-asset CDN is firewalled, so electron-builder can't fetch nsis /
+  winCodeSign. Build on Windows. A portable zip can be assembled by hand there
+  (asar CLI + raw Electron copy + `resedit` for the exe icon).
+
+### General
+
 - DB file (`nexus_data.sqlite`) is ~131MB with compressed JSON blobs
 - The app uses `nodeIntegration: true` in Electron (no context isolation)
 - All rendering is DOM manipulation — no virtual DOM or framework
@@ -360,6 +393,31 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 - `getMatchById()` still does `SELECT *`, so the match modal / expanded row / badge evaluator get full blobs for a single match. `toggleRowExpand` must pass that full row to `createExpandedRow`, not the light `matchesData` row
 
 **If you add a stat that reads rawJson or timelineJson, add its tab to `TAB_JSON_NEEDS` or it will silently compute from `null`.**
+
+### Stat history chart (click a card) — 2026-10
+
+Cards with a green dot open a slide-down chart (`#statHistoryPanel`, between
+the card grid and Time Analytics) showing that stat **per month for the last 12
+calendar months, ending with the current month** (current month = "so far").
+
+- `components/statHistory.js`. Each month's value comes from running
+  `window.computeTabStats` over just that month's games, so the chart can never
+  disagree with what the card would show for that month. No second formula.
+- Input is exactly what the cards got (current filters, remakes excluded):
+  `renderAnalyticsTab` calls `window.syncStatHistory(tab, matches)` after
+  drawing cards. That recomputes an open chart on filter change and closes it
+  on sub-tab change.
+- Not clickable (`isChartable`): `count` cards (Total Matches, the three streak
+  cards), `none`, and `con_last10_wr` (no per-month meaning). Ranked Solo/Flex
+  boxes are separate elements and never get the dot.
+- Rank bands use `window.getStatBenchmark(id)` (exposes `STAT_BENCHMARKS`);
+  `benchmarkBands` mirrors `evaluateBenchmark`'s >= / <= rule (tested).
+- Months with < 5 games (`LOW_SAMPLE`) are hollow/dashed and **don't set the
+  y-scale**: a 2-game 0% month would otherwise flatten a year of real data. If
+  off-scale it is pinned to the edge, labelled with its true value.
+- `readable()` lightens dark tier colours (Iron, Bronze) for text and dots.
+- Slide animation is `grid-template-rows: 0fr → 1fr` on `.stat-history-panel`.
+- Real data: 58 chartable cards, slowest 12 ms to compute.
 
 ### Remakes are excluded from statistics
 

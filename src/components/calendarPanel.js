@@ -130,7 +130,15 @@ function updateCalPickerLabels() {
 
 // Exposed on window so renderer.js can call it after filter changes
 window.renderCalendarMonthView = function renderCalendarMonthView(matchesOverride) {
-    const matchesData = matchesOverride || window.matchesData || [];
+    // Fall back to the FILTERED set, not the raw one. The month/year pickers
+    // re-render without passing an argument, and falling through to
+    // window.matchesData there silently reverted the calendar to every game
+    // mode — so changing month showed all-queue W/L while the filter bar still
+    // claimed Solo/Duo only.
+    const matchesData = matchesOverride
+        || window._calendarFilteredMatches
+        || window.matchesData
+        || [];
     const grid        = document.getElementById('calendarMonthGrid');
     if (!grid) return;
     grid.innerHTML = '';

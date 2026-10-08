@@ -653,6 +653,15 @@ function calcConsistency(matches) {
 // MAIN EXPORT
 // ---------------------------------------------------------
 
+/**
+ * Rank thresholds for one stat (or null if it isn't benchmarked). Used by the
+ * stat-history chart (statHistory.js) to draw the Iron → Challenger bands with
+ * exactly the boundaries the cards are coloured by.
+ */
+window.getStatBenchmark = function (statId) {
+    return STAT_BENCHMARKS[statId] || null;
+};
+
 window.computeTabStats = function(tabName, matches, prevMatches = []) {
     if (!matches || matches.length === 0) return [];
     let cards = [];

@@ -179,13 +179,13 @@ async function getCoachingData(seasonStart, timelineSample = 40) {
                totalDamageDealtToChampions, goldEarned,
                totalMinionsKilled, visionScore,
                detectorWardsPlaced, wardsPlaced, wardsKilled,
-               isolatedDeaths, goldDiff15, csDiff15,
+               isolatedDeaths, goldDiff15, csDiff15, xpDiff15, objectiveRate,
                teamDragons, enemyDragons, teamBarons, teamKills, firstBlood,
                doubleKills, tripleKills, turretKills, objectivesStolen,
                dmgGoldRatio,
                -- Needed by coachingEngine: role decides which benchmark
                -- applies, and these are the early-game inputs it ranks on.
-               teamPosition, deathsBefore10, cs10, cs15,
+               teamPosition, deathsBefore10, cs10, cs15, soloKillDiff,
                killParticipation, dmgShare
         FROM matches
         WHERE queueId = 420 AND gameCreation >= ?

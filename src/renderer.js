@@ -2,7 +2,7 @@
 // IMPORTS — services (browser context, Node via nodeIntegration)
 // ============================================================
 const { ipcRenderer } = window.require('electron');
-const { getPuuidByRiotId } = window.require('./services/riotApi');
+const { getPuuidByRiotId, PLATFORM_ROUTING } = window.require('./services/riotApi');
 const { getLiveGame, testConnection } = window.require('./services/liveClient');
 const {
     getMatches, getStats, getMatchById, getLeagueData,
@@ -20,6 +20,7 @@ const { loadConfig, saveConfig, isConfigValid, userDataPath } = window.require('
 // IMPORTS — UI component modules (self-register window.* as side-effects)
 // ============================================================
 window.require('./components/analyticsEngine');
+window.require('./components/statHistory');   // registers toggleStatHistory, syncStatHistory, isStatChartable
 window.require('./components/matchModal');    // registers toggleRowExpand (expanded 10-player rows)
 window.require('./components/syncPanel');     // registers handleSync
 window.require('./components/calendarPanel'); // registers initCalendar, renderLpCharts, calculateTimeInsights, toggleCalPicker
@@ -113,8 +114,8 @@ function showSetupModal(isFirstTime = true) {
     document.getElementById('setupApiKey').value   = config.apiKey   || '';
     document.getElementById('setupGameName').value = config.gameName || '';
     document.getElementById('setupTagLine').value  = config.tagLine  || '';
-    document.getElementById('setupRegion').value   = config.region   || 'europe';
     document.getElementById('setupPlatform').value = config.platform || 'euw1';
+    syncRegionToPlatform();
     // Both default on for a config saved before these settings existed
     document.getElementById('setupAutoLogGames').checked = config.autoLogGames !== false;
     document.getElementById('setupCloseToTray').checked  = config.closeToTray  !== false;
@@ -142,6 +143,18 @@ window.hideSetupModal = hideSetupModal;
 window.openSettings   = openSettings;
 
 /**
+ * Region is not a free choice: Riot routes each server (platform) to a fixed
+ * regional cluster. The Region box just displays that, derived from the Server
+ * box, so the two can never disagree.
+ */
+function syncRegionToPlatform() {
+    const platform = document.getElementById('setupPlatform').value;
+    const regionEl = document.getElementById('setupRegion');
+    regionEl.value = PLATFORM_ROUTING[platform] || 'europe';
+}
+window.syncRegionToPlatform = syncRegionToPlatform;
+
+/**
  * The database and config.json live in the OS's per-user app-data directory,
  * not next to the source — that's where Windows expects them, and keeping a
  * live SQLite file out of a cloud-synced folder avoids sync corruption.
@@ -160,8 +173,9 @@ window.saveSetup = function () {
     const apiKey   = document.getElementById('setupApiKey').value.trim();
     const gameName = document.getElementById('setupGameName').value.trim();
     const tagLine  = document.getElementById('setupTagLine').value.trim();
-    const region   = document.getElementById('setupRegion').value;
     const platform = document.getElementById('setupPlatform').value;
+    // Derived, never chosen — see syncRegionToPlatform()
+    const region   = PLATFORM_ROUTING[platform] || 'europe';
     const errorEl  = document.getElementById('setupError');
 
     const closeToTray  = document.getElementById('setupCloseToTray').checked;
@@ -360,6 +374,11 @@ async function captureLpReadings({ quiet = false } = {}) {
     }
     return moved;
 }
+
+// Exposed so syncPanel.js can trigger a fresh LP read on every sync — manual
+// clicks included, not just the post-game watcher — without a circular
+// require between the two files.
+window.captureLpReadings = captureLpReadings;
 
 /**
  * A game just ended — pull it in and work out what it cost or earned.
@@ -799,10 +818,78 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
                 </div>`;
         }
 
+        // Cards with a meaningful month-by-month trend get a green dot and open
+        // the history chart (components/statHistory.js) when clicked.
+        const chartable = typeof window.isStatChartable === 'function' && window.isStatChartable(card);
+        if (chartable) {
+            html += `<span class="stat-history-dot" aria-hidden="true"></span>`;
+            div.classList.add('stat-card--clickable');
+            div.dataset.statId = card.id;
+            div.dataset.label  = card.label;
+            div.tabIndex = 0;
+            div.setAttribute('role', 'button');
+            div.setAttribute('aria-expanded', 'false');
+            div.setAttribute('aria-controls', 'statHistoryPanel');
+            div.title = `${card.label} — click to see the last 12 months`;
+            const open = () => window.toggleStatHistory(tabName, card.id, card.label);
+            div.addEventListener('click', open);
+            div.addEventListener('keydown', e => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+            });
+        }
+
         div.innerHTML = html;
         container.appendChild(div);
     });
+
+    balanceStatsGrid(container);
+
+    // Keep an open history chart in step: recompute it for new filters, or
+    // close it when the sub-tab changed and its card is no longer on screen.
+    if (typeof window.syncStatHistory === 'function') window.syncStatHistory(tabName, matches);
 };
+
+// ============================================================
+// STATS GRID BALANCING
+// ============================================================
+/**
+ * Pick a column count that spreads the stat cards evenly across rows, so a
+ * wrapped row never leaves a big blank gap. A ranked card counts as 2 units
+ * (it spans 2 columns). Preference order: the largest column count that fits
+ * the container at >=130px per card AND divides the units with no remainder;
+ * failing that, the count leaving the fewest empty cells.
+ */
+function balanceStatsGrid(container) {
+    const MIN_CARD_W = 130, GAP = 12;
+
+    const units = Array.from(container.children).reduce((sum, el) => {
+        if (el.style.display === 'none') return sum;
+        return sum + (el.classList.contains('ranked') ? 2 : 1);
+    }, 0);
+    if (units === 0) return;
+
+    const width   = container.clientWidth;
+    const maxCols = Math.min(units, Math.max(1, Math.floor((width + GAP) / (MIN_CARD_W + GAP))));
+
+    // Search from maxCols down to half of it: this allows dropping to a
+    // perfectly-even column count (e.g. 6 when 11 fit but there are 12 units)
+    // without ever letting cards grow past ~2x their minimum width.
+    let best = maxCols, bestEmpty = Infinity;
+    const minCols = Math.max(1, Math.ceil(maxCols / 2));
+    for (let cols = maxCols; cols >= minCols; cols--) {
+        const empty = (cols - (units % cols)) % cols;
+        if (empty === 0) { best = cols; break; } // largest even split wins
+        if (empty < bestEmpty) { bestEmpty = empty; best = cols; }
+    }
+
+    container.style.gridTemplateColumns = `repeat(${best}, 1fr)`;
+}
+
+// Re-balance when the window (and therefore the container) changes size
+new ResizeObserver(() => {
+    const container = document.getElementById('analyticsCardsContainer');
+    if (container && container.children.length) balanceStatsGrid(container);
+}).observe(document.getElementById('analyticsCardsContainer'));
 
 // ============================================================
 // PAGINATION

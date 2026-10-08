@@ -113,8 +113,25 @@
             unit: 'gold', decimals: 0,
             value: m => num(m.goldDiff15),
             lowerIsBetter: false,
-            target: { default: -200 },
+            // Compared against the same-position opponent (matchService picks
+            // them by teamPosition), so for JUNGLE this is you vs. the enemy
+            // jungler — clear speed and gank trades, not a lane. Target is
+            // near-parity there rather than the deficit a solo laner can
+            // absorb from just soaking XP under tower.
+            target: { TOP: -150, JUNGLE: 0, MIDDLE: -100, BOTTOM: -150, default: -200 },
             rule: 'Take the even trade and reset. Losing lane slowly beats dying.',
+        },
+        {
+            id: 'xpDiff15', kind: 'input',
+            label: 'XP difference at 15',
+            unit: 'xp', decimals: 0,
+            value: m => num(m.xpDiff15),
+            lowerIsBetter: false,
+            // Same same-position comparison as goldDiff15. Two junglers who
+            // both full-clear split the map's jungle XP roughly evenly, so
+            // parity (not a deficit) is the jungle target.
+            target: { TOP: -150, JUNGLE: -50, MIDDLE: -100, BOTTOM: -200, default: -150 },
+            rule: 'Don\'t skip camps or trades — a small XP deficit compounds into a missed level spike.',
         },
         {
             id: 'tiltQueue', kind: 'input',
@@ -143,6 +160,39 @@
             target: { default: 0 },
             binary: true,
             rule: 'Pick from your top three unless the game is already won.',
+        },
+        {
+            id: 'soloKillDiff', kind: 'input',
+            label: 'Solo kills vs. opponent',
+            unit: '', decimals: 2,
+            value: m => num(m.soloKillDiff),
+            lowerIsBetter: false,
+            // Not just a laning stat — for JUNGLE this is invades plus picks
+            // off overextended laners, arguably the most direct read on gank
+            // success there is. Meaningless for a support who is never alone
+            // with the enemy support, so that role is skipped rather than
+            // held to a target that can't move.
+            target: { JUNGLE: 0.15, TOP: 0.05, MIDDLE: 0.05, BOTTOM: 0, default: 0.05 },
+            skipRoles: ['UTILITY'],
+            rule: 'Punish an overextended lane — one clean solo kill swings the lane by itself.',
+        },
+        {
+            id: 'objectiveRate', kind: 'input',
+            label: 'Present for objectives',
+            unit: '%', decimals: 0,
+            // Stored as 0-100 already (see analyticsEngine's Objectives tab).
+            value: m => num(m.objectiveRate),
+            lowerIsBetter: false,
+            // Deliberately separate from the raw "dragons/barons per game"
+            // outcome below. That number mostly says "the team was winning";
+            // this one says "you were alive and there for the fight", which
+            // is a positioning decision a player actually controls. JUNGLE
+            // gets the highest bar because contesting neutral objectives is
+            // the role's core job; TOP the lowest, since holding a side wave
+            // during a bot-side objective is often the correct call, not a
+            // missed rotation.
+            target: { JUNGLE: 55, UTILITY: 50, MIDDLE: 45, BOTTOM: 40, TOP: 35, default: 40 },
+            rule: 'Play your objective timers, not just your lane — dying before a spawn costs the whole team the fight.',
         },
 
         // ── Outcomes: evidence, never tasks ──────────────────────────────────

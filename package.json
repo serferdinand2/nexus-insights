@@ -10,7 +10,8 @@
     "parity": "node scripts/parity-check.js",
     "diagnose": "node scripts/diagnose-sync.js",
     "cleanup": "node scripts/cleanup-matches.js",
-    "coaching": "node scripts/coaching-report.js"
+    "coaching": "node scripts/coaching-report.js",
+    "dist": "node scripts/build-installer.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
@@ -47,7 +48,15 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Nexus Insights"
-    }
-  }
+      "shortcutName": "Nexus Insights",
+      "include": "installer/installer.nsh"
+    },
+    "npmRebuild": false,
+    "asarUnpack": [
+      "**/*.node"
+    ],
+    "electronDist": "node_modules/electron/dist"
+  },
+  "author": "Nexus Insights",
+  "license": "UNLICENSED"
 }
