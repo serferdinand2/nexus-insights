@@ -345,3 +345,49 @@ body {
     padding-bottom: var(--gutter);
     height: 100vh;
 }
+
+/* ==========================================================================
+   Rank cards: same size and layout as every other stat card
+   --------------------------------------------------------------------------
+   They used to span two grid columns with the emblem beside the text, so
+   they were always twice as wide as their neighbours. Now: label on top,
+   emblem, rank, W-L — one column, like the rest (balanceStatsGrid counts
+   them as 1 unit).
+   ========================================================================== */
+.unified-stat-card.ranked {
+    grid-column: auto;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 3px;
+    border-top: 3px solid var(--line-strong);
+}
+.unified-stat-card.ranked .unified-stat-info { display: contents; }
+.unified-stat-card.ranked .unified-stat-label {
+    order: 0;
+    font-size: var(--t-label);
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    text-align: center;
+    margin: 0;
+}
+.unified-stat-card.ranked .rank-emblem {
+    order: 1;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+}
+.unified-stat-card.ranked .rank-display {
+    order: 2;
+    font-size: var(--t-body);
+    font-weight: 700;
+    text-align: center;
+    margin: 0;
+}
+.unified-stat-card.ranked .unified-stat-value {
+    order: 3;
+    font-size: var(--t-small);
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-align: center;
+}

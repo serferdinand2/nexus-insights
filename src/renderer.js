@@ -862,16 +862,16 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
  * failing that, the count leaving the fewest empty cells.
  */
 function balanceStatsGrid(container) {
-    const MIN_CARD_W = 130, GAP = 12;
+    // Every card (including the two rank cards) is one column wide. At most
+    // 8 per row: 10 Overview cards split 5+5 instead of one cramped row.
+    const MIN_CARD_W = 130, GAP = 12, MAX_COLS = 8;
 
-    const units = Array.from(container.children).reduce((sum, el) => {
-        if (el.style.display === 'none') return sum;
-        return sum + (el.classList.contains('ranked') ? 2 : 1);
-    }, 0);
+    const units = Array.from(container.children)
+        .filter(el => el.style.display !== 'none').length;
     if (units === 0) return;
 
     const width   = container.clientWidth;
-    const maxCols = Math.min(units, Math.max(1, Math.floor((width + GAP) / (MIN_CARD_W + GAP))));
+    const maxCols = Math.min(units, MAX_COLS, Math.max(1, Math.floor((width + GAP) / (MIN_CARD_W + GAP))));
 
     // Search from maxCols down to half of it: this allows dropping to a
     // perfectly-even column count (e.g. 6 when 11 fit but there are 12 units)
