@@ -3,6 +3,29 @@
 A League of Legends personal analytics desktop app. Syncs your match history
 from the Riot API, stores it locally, and works offline after the first sync.
 
+## ⬇ Download
+
+**[Download Nexus Insights for Windows](https://github.com/toancina/nexus-insights/releases/latest/download/Nexus-Insights-Setup.exe)**
+(Windows 10/11, 64-bit). Every version is on the [Releases page](https://github.com/toancina/nexus-insights/releases).
+
+1. Run `Nexus-Insights-Setup.exe`. If Windows says *"Windows protected your PC"*,
+   click **More info → Run anyway**. The app just isn't code-signed.
+2. In the setup window enter:
+   - a **Riot API key**: free at [developer.riotgames.com](https://developer.riotgames.com)
+     (sign in with your League account, copy the *Development API Key*; it
+     expires every 24 h, so paste a fresh one in Settings ⚙ when syncing stops),
+   - your **Riot ID** (name + tag) and **server**.
+3. Click **Sync Matches**. The first sync takes a few minutes.
+
+Updates: click ⟳ next to ⚙ in the app. Your matches and settings are kept.
+
+Optional **Chat** page: install [Ollama](https://ollama.com) and run
+`ollama pull qwen3:8b`. It runs locally and nothing leaves your PC.
+
+---
+
+*Everything below is for working on the code.*
+
 Electron + vanilla JS + SQLite. No framework, no build step for the UI.
 
 ---
@@ -27,8 +50,9 @@ npm run dist # clean, shareable Windows installer into dist/
 ## Sharing it with someone else
 
 **Double-click `Build Installer.bat`** (or run `npm run dist`). After a minute
-or two it opens `dist\` with `Nexus Insights Setup 1.0.0.exe` in it. Send that
-one file.
+or two it opens `dist\` with `Nexus-Insights-Setup.exe` in it. Send that
+one file, or better, publish it with `Publish Update.bat` (see Updates below)
+so people download it from GitHub and get updates.
 
 The installer is a **completely fresh copy**: no API key, no Riot ID, no matches,
 no LP history. Those all live in `%APPDATA%\nexus-insights` on *your* PC and are

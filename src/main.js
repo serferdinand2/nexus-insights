@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 
@@ -215,6 +215,16 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'index.html'));
+
+  // Web links belong in the user's browser, never inside the app window
+  // (which has Node access). Covers target=_blank and plain link clicks.
+  const openOutside = (url) => {
+    if (/^https:\/\//i.test(url)) shell.openExternal(url);
+  };
+  win.webContents.setWindowOpenHandler(({ url }) => { openOutside(url); return { action: 'deny' }; });
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file:')) { event.preventDefault(); openOutside(url); }
+  });
 
   // Launched by Windows at login? Start straight into the tray rather than
   // popping a window in front of whatever the user is doing.

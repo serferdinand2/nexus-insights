@@ -363,18 +363,20 @@
                         <label class="setup-label" for="setupApiKey">Riot API Key</label>
                         <input type="password" id="setupApiKey" class="setup-input"
                             placeholder="RGAPI-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx">
-                        <p class="setup-hint">Get your API key from <a href="#"
+                        <p class="setup-hint">Free: sign in at <a href="#"
                                 onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">developer.riotgames.com</a>
+                            with your League account and copy the <b>Development API Key</b>.
+                            It expires every 24 hours, so paste a new one here when syncing stops working.
                         </p>
                     </div>
                     <div class="setup-row">
                         <div class="setup-field">
-                            <label class="setup-label" for="setupGameName">Summoner Name</label>
+                            <label class="setup-label" for="setupGameName">Riot ID name</label>
                             <input type="text" id="setupGameName" class="setup-input" placeholder="YourName">
                         </div>
                         <div class="setup-field setup-tag">
                             <label class="setup-label" for="setupTagLine">Tag</label>
-                            <input type="text" id="setupTagLine" class="setup-input" placeholder="EUW">
+                            <input type="text" id="setupTagLine" class="setup-input" placeholder="EUW" title="The part after # in your Riot ID">
                         </div>
                     </div>
                     <div class="setup-row">

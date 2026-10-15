@@ -51,7 +51,8 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Nexus Insights",
-      "include": "installer/installer.nsh"
+      "include": "installer/installer.nsh",
+      "artifactName": "Nexus-Insights-Setup.${ext}"
     },
     "npmRebuild": false,
     "asarUnpack": [

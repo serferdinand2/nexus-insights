@@ -217,7 +217,57 @@ if (!setup) fail('Build reported success but no Setup .exe was found in dist\\.'
 
 const mb = (fs.statSync(path.join(distDir, setup.f)).size / 1048576).toFixed(0);
 
+// Fill in the release page on GitHub. electron-builder creates the release
+// with an empty body; first-time visitors need install steps, and everyone
+// wants to know what changed. Best effort: a failure here doesn't undo a
+// release that is already live.
+async function writeReleasePage(version) {
+    const { owner, repo } = pkg.build.publish[0];
+    const tag = `v${version}`;
+    const api = `https://api.github.com/repos/${owner}/${repo}`;
+    const headers = {
+        Authorization: `Bearer ${buildEnv.GH_TOKEN}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'nexus-insights-release',
+    };
+
+    // "What's new": commit subjects since the previous release commit
+    const sh = (...a) => {
+        const r = spawnSync('git', a, { cwd: ROOT, encoding: 'utf8' });
+        return r.status === 0 ? r.stdout.trim() : '';
+    };
+    const prev = sh('log', '-1', '--format=%H', '--grep=^Release v');
+    // First release: no list — the old history is developer noise
+    const subjects = (prev ? sh('log', '--format=%s', '--no-merges', `${prev}..HEAD`) : '')
+        .split('\n').map(l => l.trim())
+        .filter(l => l && !/^Release v/.test(l));
+    const whatsNew = subjects.length
+        ? `## What's new\n\n${subjects.map(l => `- ${l}`).join('\n')}\n\n`
+        : '';
+
+    const guide = fs.readFileSync(path.join(ROOT, 'installer', 'release-notes.md'), 'utf8');
+    const body = whatsNew + guide;
+
+    const rel = await fetch(`${api}/releases/tags/${tag}`, { headers });
+    if (!rel.ok) throw new Error(`couldn't find release ${tag} (HTTP ${rel.status})`);
+    const { id } = await rel.json();
+    const upd = await fetch(`${api}/releases/${id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: `Nexus Insights ${tag}`, body }),
+    });
+    if (!upd.ok) throw new Error(`HTTP ${upd.status}`);
+}
+
 if (PUBLISH) {
+  (async () => {
+    try {
+        await writeReleasePage(pkg.version);
+        console.log('  Release page written (install guide + what\'s new).');
+    } catch (err) {
+        console.log(`  NOTE: release is live, but its description couldn't be written: ${err.message}`);
+    }
+
     // Record the release in git so the repo matches what was shipped.
     // .gitignore keeps the database, dist\ and secrets out.
     const git = (...args) => spawnSync('git', args, { cwd: ROOT, stdio: 'inherit' }).status === 0;
@@ -236,11 +286,13 @@ if (PUBLISH) {
     }
     console.log('  =========================================================\n');
     process.exit(0);
+  })();
+} else {
+    console.log('\n  =========================================================');
+    console.log('   DONE');
+    console.log(`   ${path.join(distDir, setup.f)}  (${mb} MB)`);
+    console.log('');
+    console.log('   Send that one file. It installs a completely fresh copy:');
+    console.log('   no API key, no matches, no LP history.');
+    console.log('  =========================================================\n');
 }
-console.log('\n  =========================================================');
-console.log('   DONE');
-console.log(`   ${path.join(distDir, setup.f)}  (${mb} MB)`);
-console.log('');
-console.log('   Send that one file. It installs a completely fresh copy:');
-console.log('   no API key, no matches, no LP history.');
-console.log('  =========================================================\n');

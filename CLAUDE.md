@@ -528,3 +528,14 @@ bump is reverted. Token: `GH_TOKEN` env or
 `%APPDATA%\nexus-insights\github-token.txt` (fine-grained, this repo only,
 Contents read/write). The installer is unsigned: SmartScreen warns on first
 install, updates still work. The portable zip cannot self-update.
+
+**First-time install from GitHub.** The installer is named
+`Nexus-Insights-Setup.exe` with no version in it (`nsis.artifactName`), so
+`/releases/latest/download/Nexus-Insights-Setup.exe` is a permanent download
+link (README top + release page). Differential updates still work, because
+electron-updater swaps the version inside the tag part of the URL. After uploading,
+`build-installer.js` PATCHes the GitHub release body (electron-builder leaves
+it empty): "What's new" = commit subjects since the last `Release v…` commit,
+then `installer/release-notes.md` (install guide). Edit that file to change
+the guide. Links that would navigate the app window or open a new one are
+sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
