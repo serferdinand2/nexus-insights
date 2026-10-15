@@ -740,3 +740,8 @@ body {
 .coach-details.collapsed { display: none; }
 .coach-subhead { font-size: var(--t-body); font-weight: 600; color: var(--text-primary); margin: var(--s4) 0 var(--s2); }
 .coach-spark-caption { font-size: 10.5px; margin-top: -2px; }
+
+/* Background dim slider (Skins page) */
+.skins-dim-control { display: flex; align-items: center; gap: 10px; font-size: var(--t-small); }
+.skins-dim-control input[type="range"] { width: 220px; accent-color: var(--accent-primary); cursor: pointer; }
+.skins-dim-control output { min-width: 92px; font-weight: 700; color: var(--text-primary); font-size: var(--t-body); }

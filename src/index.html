@@ -505,6 +505,20 @@
             </div>
             <div class="skins-grid" id="skinsGrid"></div>
 
+            <div class="skins-bg skins-dim">
+                <div>
+                    <div class="skins-bg-title">Background dim</div>
+                    <div class="skins-bg-status">Darken the background so text is easier to read. Saved separately for each skin.</div>
+                </div>
+                <div class="skins-dim-control">
+                    <span class="coach-dim">Lighter</span>
+                    <input type="range" id="skinDim" min="0" max="95" step="5" aria-label="Background dim">
+                    <span class="coach-dim">Darker</span>
+                    <output id="skinDimValue" for="skinDim"></output>
+                    <button type="button" class="coach-mini-btn" id="skinDimReset" hidden>Default</button>
+                </div>
+            </div>
+
             <div class="skins-bg">
                 <div>
                     <div class="skins-bg-title">Your own background</div>

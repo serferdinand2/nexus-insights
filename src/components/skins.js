@@ -103,16 +103,43 @@ function fileUrl(p) {
     return `url("${encodeURI(prefixed).replace(/"/g, '%22')}")`;
 }
 
+/** "rgba(r, g, b, a)" → { rgb: 'r, g, b', alpha } */
+function parseOverlay(overlay) {
+    const m = /rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+))?\s*\)/.exec(overlay || '');
+    if (!m) return { rgb: '15, 15, 18', alpha: 0.85 };
+    return { rgb: `${m[1]}, ${m[2]}, ${m[3]}`, alpha: m[4] === undefined ? 1 : Number(m[4]) };
+}
+
+/** The dim a skin uses when the user hasn't set one (0 = none, 0.95 = almost black). */
+function defaultDim(skin) {
+    // Gradient skins are already dark enough to read on, so no extra tint.
+    return skin.background.type === 'gradient' ? 0 : parseOverlay(skin.overlay).alpha;
+}
+
+const clampDim = d => Math.max(0, Math.min(0.95, Number(d)));
+
 /**
  * The CSS background-image value for a skin.
  * @param {object} skin
- * @param {{customImage?: string|null, random?: () => number}} [opts]
+ * @param {{customImage?: string|null, random?: () => number, dim?: number|null}} [opts]
+ *        dim: user's "Background dim" (0–0.95); null = the skin's default
  */
-function backgroundFor(skin, { customImage = null, random = Math.random } = {}) {
-    const tint = `linear-gradient(${skin.overlay}, ${skin.overlay})`;
+// The Nexus skin shows a random region — picked once per app run, so redraws
+// (dragging the dim slider, switching skins back) don't swap the picture.
+let sessionRegion = null;
+
+function backgroundFor(skin, { customImage = null, random = null, dim = null } = {}) {
+    const { rgb } = parseOverlay(skin.overlay);
+    const imageDefault = parseOverlay(skin.overlay).alpha;
+    const a = dim === null || dim === undefined || Number.isNaN(Number(dim))
+        ? (customImage ? imageDefault : defaultDim(skin))
+        : clampDim(dim);
+    const tint = `linear-gradient(rgba(${rgb}, ${a}), rgba(${rgb}, ${a}))`;
     if (customImage) return `${tint}, ${fileUrl(customImage)}`;
-    if (skin.background.type === 'gradient') return skin.background.css;
-    const pick = REGION_BACKGROUNDS[Math.floor(random() * REGION_BACKGROUNDS.length)];
+    if (skin.background.type === 'gradient') return a > 0 ? `${tint}, ${skin.background.css}` : skin.background.css;
+    let pick;
+    if (random) pick = REGION_BACKGROUNDS[Math.floor(random() * REGION_BACKGROUNDS.length)];
+    else pick = sessionRegion || (sessionRegion = REGION_BACKGROUNDS[Math.floor(Math.random() * REGION_BACKGROUNDS.length)]);
     return `${tint}, url('./assets/backgrounds/${pick}')`;
 }
 
@@ -124,7 +151,7 @@ function allSkinVars() {
 /**
  * Apply a skin to a document. Pure DOM, no storage — the caller saves the choice.
  */
-function applySkin(id, { doc = document, customImage = null, random } = {}) {
+function applySkin(id, { doc = document, customImage = null, random, dim = null } = {}) {
     const skin = getSkin(id);
     const root = doc.documentElement;
     for (const name of allSkinVars()) root.style.removeProperty(name);
@@ -133,7 +160,7 @@ function applySkin(id, { doc = document, customImage = null, random } = {}) {
 
     const body = doc.body;
     if (body) {
-        body.style.backgroundImage      = backgroundFor(skin, { customImage, random });
+        body.style.backgroundImage      = backgroundFor(skin, { customImage, random, dim });
         body.style.backgroundRepeat     = 'no-repeat';
         body.style.backgroundPosition   = 'center center';
         body.style.backgroundAttachment = 'fixed';
@@ -143,5 +170,5 @@ function applySkin(id, { doc = document, customImage = null, random } = {}) {
     return skin;
 }
 
-const api = { SKINS, DEFAULT_SKIN, BASE_PREVIEW, skinVar, REGION_BACKGROUNDS, getSkin, backgroundFor, applySkin, fileUrl, allSkinVars };
+const api = { parseOverlay, defaultDim, SKINS, DEFAULT_SKIN, BASE_PREVIEW, skinVar, REGION_BACKGROUNDS, getSkin, backgroundFor, applySkin, fileUrl, allSkinVars };
 if (typeof module === 'object' && module.exports) module.exports = api;

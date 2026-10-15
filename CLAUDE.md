@@ -561,7 +561,10 @@ sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
   `components/skinsPanel.js` = Skins page + `applySavedSkin()` at startup
   (replaced the old random-background code in renderer.js). Saved as
   `config.skin`; a custom background image is copied into the data folder
-  (`config.customBackground`). To add a skin, add an entry to `SKINS`.
+  (`config.customBackground`). "Background dim" slider = `config.bgDim[skinId]`
+  (0–0.95; unset = skin default: region/image 0.85 or the skin overlay alpha,
+  gradients 0). Region image is picked once per app run (`sessionRegion`).
+  To add a skin, add an entry to `SKINS`.
 - `saveSetup` now merges into the existing config (it used to replace it and
   wipe skin/coaching keys).
 - Page footer removed; Riot's legal notice lives in the Settings dialog.

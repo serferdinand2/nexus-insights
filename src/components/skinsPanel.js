@@ -12,7 +12,7 @@ const fs   = require('fs');
 const path = require('path');
 const { loadConfig, setConfigValue } = require('../services/config');
 const { userDataPath } = require('../services/paths');
-const { SKINS, getSkin, applySkin, backgroundFor, skinVar } = require('./skins');
+const { SKINS, getSkin, applySkin, backgroundFor, skinVar, defaultDim, parseOverlay } = require('./skins');
 const { escapeHtml } = require('./dom');
 
 const $ = id => document.getElementById(id);
@@ -20,13 +20,33 @@ const $ = id => document.getElementById(id);
 function current() {
     const cfg = loadConfig();
     const custom = cfg.customBackground && fs.existsSync(cfg.customBackground) ? cfg.customBackground : null;
-    return { skinId: getSkin(cfg.skin).id, custom };
+    const skinId = getSkin(cfg.skin).id;
+    // Dim is remembered per skin: 85% suits a bright region image but would
+    // black out a gradient skin that's already dark.
+    const saved = cfg.bgDim && typeof cfg.bgDim === 'object' ? cfg.bgDim[skinId] : undefined;
+    const dim = typeof saved === 'number' ? saved : null;
+    return { skinId, custom, dim };
+}
+
+/** The dim actually in effect (saved value, or the skin's default). */
+function effectiveDim({ skinId, custom, dim }) {
+    if (dim !== null) return dim;
+    const skin = getSkin(skinId);
+    return custom ? parseOverlay(skin.overlay).alpha : defaultDim(skin);
 }
 
 /** Apply whatever is saved. Called once at startup, before first paint. */
-function applySavedSkin() {
-    const { skinId, custom } = current();
-    applySkin(skinId, { customImage: custom });
+function applySavedSkin(overrideDim) {
+    const cur = current();
+    applySkin(cur.skinId, { customImage: cur.custom, dim: overrideDim !== undefined ? overrideDim : cur.dim });
+}
+
+function saveDim(value) {
+    const cfg = loadConfig();
+    const map = cfg.bgDim && typeof cfg.bgDim === 'object' ? { ...cfg.bgDim } : {};
+    const id = getSkin(cfg.skin).id;
+    if (value === null) delete map[id]; else map[id] = value;
+    setConfigValue('bgDim', map);
 }
 
 function chooseSkin(id) {
@@ -76,6 +96,20 @@ function renderSkinsPanel() {
         : "Using the skin's own background.";
     const reset = $('skinBgReset');
     if (reset) reset.hidden = !custom;
+
+    const slider = $('skinDim');
+    if (slider) {
+        const cur = current();
+        slider.value = Math.round(effectiveDim(cur) * 100);
+        updateDimLabel(slider.value, cur.dim === null);
+    }
+}
+
+function updateDimLabel(v, isDefault) {
+    const out = $('skinDimValue');
+    if (out) out.textContent = `${v}%${isDefault ? ' (default)' : ''}`;
+    const def = $('skinDimReset');
+    if (def) def.hidden = !!isDefault;
 }
 
 async function pickBackground(file) {
@@ -121,9 +155,25 @@ window.openSkinsPanel = function () {
         if (pickBtn) pickBtn.addEventListener('click', () => input && input.click());
         const reset = $('skinBgReset');
         if (reset) reset.addEventListener('click', resetBackground);
+
+        const slider = $('skinDim');
+        if (slider) {
+            // Live while dragging, saved when let go
+            slider.addEventListener('input', () => {
+                applySavedSkin(slider.value / 100);
+                updateDimLabel(slider.value, false);
+            });
+            slider.addEventListener('change', () => saveDim(slider.value / 100));
+        }
+        const dimReset = $('skinDimReset');
+        if (dimReset) dimReset.addEventListener('click', () => {
+            saveDim(null);
+            applySavedSkin();
+            renderSkinsPanel();
+        });
     }
     renderSkinsPanel();
 };
 window.applySavedSkin = applySavedSkin;
 
-module.exports = { applySavedSkin };
+module.exports = { applySavedSkin, effectiveDim };

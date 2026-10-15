@@ -69,3 +69,17 @@ test('preview colours never borrow from the active skin', () => {
     }
     assert.equal(skinVar(getSkin('default'), '--accent-primary'), '#00cfbc');
 });
+
+test('background dim: user value wins, skins have sensible defaults, region stays put', () => {
+    const { backgroundFor, getSkin, defaultDim } = require(path.join(__dirname, '..', 'src', 'components', 'skins.js'));
+    const nexus = getSkin('default'), tide = getSkin('autumn-tide');
+    assert.equal(defaultDim(nexus), 0.85);
+    assert.equal(defaultDim(tide), 0, 'gradient skins are already dark');
+    assert.match(backgroundFor(nexus, { dim: 0.4 }), /rgba\(15, 15, 18, 0\.4\)/);
+    assert.match(backgroundFor(tide, { dim: 0.5 }), /^linear-gradient\(rgba\(16, 15, 38, 0\.5\).*radial-gradient/);
+    assert.ok(!/^linear-gradient\(rgba/.test(backgroundFor(tide)), 'no tint by default on gradients');
+    assert.match(backgroundFor(nexus, { dim: 5 }), /0\.95\)/, 'clamped so it never goes fully black');
+    // same region on every redraw within a session
+    const a = backgroundFor(nexus, { dim: 0.2 }), b = backgroundFor(nexus, { dim: 0.7 });
+    assert.equal(a.match(/backgrounds\/([^']+)/)[1], b.match(/backgrounds\/([^']+)/)[1]);
+});
