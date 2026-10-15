@@ -297,3 +297,51 @@
 }
 .coach-header p,
 .chat-sub { font-size: var(--t-small); color: var(--text-secondary); }
+
+/* ==========================================================================
+   Frame: floating glass rail + one even 12px gutter
+   --------------------------------------------------------------------------
+   The page used to be capped at 95% width and centred, plus 24px padding, so
+   the gap beside the rail was ~70px while the gap under the title bar was
+   ~10px. Now everything sits on the same 12px gutter, and the rail is a
+   frosted panel like the main card instead of a solid dark strip.
+   ========================================================================== */
+:root { --gutter: 12px; }
+
+body {
+    padding-left: calc(var(--nav-rail-width) + var(--gutter));
+}
+
+.nav-drawer.nav-rail {
+    top: calc(var(--titlebar-height) + var(--gutter));
+    left: var(--gutter);
+    bottom: var(--gutter);
+    height: auto;
+    padding: 10px 7px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-primary);
+    border-radius: var(--r-panel);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5),
+                inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+.nav-rail .nav-drawer-btn { border-radius: var(--r-ctl); }
+.nav-rail .nav-drawer-btn.active {
+    background: rgba(0, 207, 188, 0.12);
+    box-shadow: inset 0 0 0 1px rgba(0, 207, 188, 0.35);
+}
+
+.app-container {
+    max-width: none;
+    padding: calc(var(--titlebar-height) + var(--gutter)) var(--gutter) var(--gutter);
+}
+.main-card { border-radius: var(--r-panel); }
+
+/* Coaching / Chat pages: same top gutter so the pages don't jump on switch */
+.coaching-shell { padding-top: calc(var(--titlebar-height) + var(--gutter)); }
+.chat-shell {
+    padding-top: calc(var(--titlebar-height) + var(--gutter));
+    padding-bottom: var(--gutter);
+    height: 100vh;
+}
