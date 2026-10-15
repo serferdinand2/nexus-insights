@@ -149,8 +149,8 @@ that folder while the app is **closed**.
 `CLAUDE.md` has the detailed architecture notes — schema, sync strategy, the
 lazy-JSON-loading design, and which analytics tabs need which data.
 
-`SECURITY-NOTES.md` covers repo hygiene and the outstanding renderer-privilege
-question.
+The renderer runs with `nodeIntegration: true` (see "General" in `CLAUDE.md`);
+every string from the Riot API is escaped before it reaches the page.
 
 ---
 

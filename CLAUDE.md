@@ -376,6 +376,9 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 
 - DB file (`nexus_data.sqlite`) is ~131MB with compressed JSON blobs
 - The app uses `nodeIntegration: true` in Electron (no context isolation)
+  — any HTML injection would have Node access, so every external string goes
+  through `escapeHtml()` (`components/dom.js`, tested). Moving to
+  contextIsolation is parked: it needs analytics extraction moved to main first.
 - All rendering is DOM manipulation — no virtual DOM or framework
 - CSS uses custom properties for theming (dark theme, gold/teal accents)
 - `electron-builder` configured for Windows x64 NSIS installer only

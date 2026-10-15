@@ -34,3 +34,6 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ── Local-only notes (old handoffs, research) ────────────
+_archive/
