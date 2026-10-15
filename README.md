@@ -22,6 +22,9 @@ Updates: click ⟳ next to ⚙ in the app. Your matches and settings are kept.
 Optional **Chat** page: install [Ollama](https://ollama.com) and run
 `ollama pull qwen3:8b`. It runs locally and nothing leaves your PC.
 
+**macOS or Linux?** There's no download yet. Build your own copy in a couple of
+minutes: see [Building for macOS or Linux](#building-for-macos-or-linux).
+
 ---
 
 *Everything below is for working on the code.*
@@ -42,7 +45,7 @@ On first launch the setup dialog asks for a Riot API key, your Riot ID
 
 ```
 npm test     # unit tests
-npm run dist # clean, shareable Windows installer into dist/
+npm run dist # clean, shareable installer for this OS into dist/
 ```
 
 ---
@@ -86,6 +89,38 @@ Use `npm run dist`, not `npm run build`. Plain `build` skips the strip.
 5. By default the app **starts with Windows and closes to the tray**, because
    it has to be running to record LP changes. Both can be turned off in
    Settings.
+
+### Building for macOS or Linux
+
+On the Mac or Linux PC itself:
+
+```
+npm install
+npm run dist
+```
+
+| OS | Output in `dist/` |
+|----|-------------------|
+| macOS | `Nexus-Insights-mac-arm64.dmg` (Apple Silicon) or `-x64.dmg` (Intel) |
+| Linux | `Nexus-Insights-linux-x64.AppImage` (or `-arm64`) |
+
+Same fresh copy as the Windows one: LP history stripped, no data packaged.
+
+- **Each OS builds its own copy, for its own chip.** The SQLite driver and
+  Electron in `node_modules` are the ones `npm install` downloaded for that
+  machine, so a Mac can't build the Windows installer or the Intel Mac
+  version, and the other way round.
+- **macOS: first launch.** The app isn't signed with an Apple Developer ID
+  ($99/year). macOS says it can't verify the developer: click **Done**, then
+  **System Settings → Privacy & Security**, scroll down, **Open Anyway**.
+  Only needed once.
+- **No automatic updates** on macOS or Linux. Releases carry only the Windows
+  installer, and macOS won't update an unsigned app. There the ⟳ button
+  opens the Releases page. `npm run release` refuses to run outside Windows,
+  so a Mac can never publish a release that breaks Windows updates.
+- Linux: `chmod +x` the AppImage, then run it. "Start with Windows" is hidden
+  there (Electron has no login-item API on Linux). On macOS it's called
+  "Open at login".
 
 ---
 

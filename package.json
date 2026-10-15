@@ -45,6 +45,22 @@
       ],
       "icon": "src/assets/icon.ico"
     },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "icon": "src/assets/icon.png",
+      "category": "public.app-category.utilities",
+      "artifactName": "Nexus-Insights-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "icon": "src/assets/icon.png",
+      "category": "Utility",
+      "artifactName": "Nexus-Insights-linux-${arch}.${ext}"
+    },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
@@ -54,6 +70,7 @@
       "include": "installer/installer.nsh",
       "artifactName": "Nexus-Insights-Setup.${ext}"
     },
+    "afterPack": "scripts/after-pack.js",
     "npmRebuild": false,
     "asarUnpack": [
       "**/*.node"

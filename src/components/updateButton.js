@@ -6,7 +6,7 @@
  * the new version. A quiet check at startup only lights the green dot.
  */
 
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, shell } = require('electron');
 
 let currentVersion = '';
 
@@ -54,6 +54,12 @@ function onStatus(_e, s) {
             setButton('idle');
             toast('Running from source',
                 'Updates install into the installed app only. Here, use "git pull" to get the latest code.', 6000);
+            break;
+        case 'manual':                          // macOS/Linux: no self-update
+            setButton('idle');
+            toast('Download updates by hand',
+                'Automatic updates are Windows-only for now. Opening the download page…', 6000);
+            if (/^https:\/\//i.test(s.url || '')) shell.openExternal(s.url);
             break;
         case 'error':
             setButton('idle');

@@ -123,6 +123,10 @@ function showSetupModal(isFirstTime = true) {
     document.getElementById('setupAutoLogGames').checked = config.autoLogGames !== false;
     document.getElementById('setupCloseToTray').checked  = config.closeToTray  !== false;
     document.getElementById('setupStartOnLogin').checked = config.startOnLogin !== false;
+    // main.js can register a login item on Windows and macOS, not on Linux
+    document.getElementById('setupStartOnLoginRow').style.display = process.platform === 'linux' ? 'none' : '';
+    document.getElementById('setupStartOnLoginTitle').textContent =
+        process.platform === 'darwin' ? 'Open at login' : 'Start with Windows';
     document.getElementById('setupError').style.display = 'none';
 
     const dataDirEl = document.getElementById('dataDirPath');

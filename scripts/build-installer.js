@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 /**
- * build-installer.js — produce a clean, shareable Windows installer.
+ * build-installer.js — produce a clean, shareable installer for this OS.
  *
- *   npm run dist          (or double-click "Build Installer.bat")
+ *   npm run dist          (or double-click "Build Installer.bat" on Windows)
  *
- * Output: dist\Nexus Insights Setup <version>.exe
+ * Output, in dist/:
+ *   Windows  Nexus-Insights-Setup.exe
+ *   macOS    Nexus-Insights-mac-<arch>.dmg
+ *   Linux    Nexus-Insights-linux-<arch>.AppImage
+ *
+ * Each OS builds its own: the sqlite3 driver in node_modules and the Electron
+ * in electronDist are whatever `npm install` fetched for *this* machine, so a
+ * cross-build would ship binaries that can't run on the target.
  *
  * WHY THIS ISN'T JUST `electron-builder`
  * --------------------------------------
@@ -24,7 +31,8 @@
  *
  * Flags:
  *   --dry-run   do the strip + checks + restore, but skip electron-builder
- *   --publish   RELEASE AN UPDATE (npm run release / "Publish Update.bat"):
+ *   --publish   RELEASE AN UPDATE (npm run release / "Publish Update.bat"),
+ *               Windows only for now (see the check below):
  *               bump the patch version (1.0.3 -> 1.0.4), build, upload the
  *               installer + latest.yml to a GitHub Release, then commit and
  *               push. Installed copies pick it up from the ⟳ button.
@@ -67,11 +75,25 @@ if (fs.existsSync(BACKUP)) {
 // ---------------------------------------------------------------------------
 // 1. Preflight — is everything the build needs present?
 // ---------------------------------------------------------------------------
+// Host arch for macOS/Linux (an Apple Silicon Mac builds arm64); the Windows
+// installer has always been x64.
+const ARCH = process.arch === 'arm64' ? 'arm64' : 'x64';
+const TARGETS = {
+    win32:  { os: 'Windows', electron: 'electron.exe', icon: 'icon.ico', file: /^Nexus-Insights-Setup\.exe$/,
+              args: ['--win', 'nsis', '--x64'] },
+    darwin: { os: 'macOS',   electron: 'Electron.app', icon: 'icon.png', file: /^Nexus-Insights-mac-.*\.dmg$/,
+              args: ['--mac', 'dmg', `--${ARCH}`] },
+    linux:  { os: 'Linux',   electron: 'electron',     icon: 'icon.png', file: /^Nexus-Insights-linux-.*\.AppImage$/,
+              args: ['--linux', 'AppImage', `--${ARCH}`] },
+};
+const TARGET = TARGETS[process.platform];
+if (!TARGET) fail(`Building on ${process.platform} isn't supported (Windows, macOS or Linux).`);
+
 const need = [
-    ['node_modules/electron/dist/electron.exe',               'Electron'],
+    [`node_modules/electron/dist/${TARGET.electron}`,         'Electron'],
     ['node_modules/electron-builder/package.json',            'electron-builder'],
     ['node_modules/sqlite3/build/Release/node_sqlite3.node',  'the sqlite3 database driver'],
-    ['src/assets/icon.ico',                                   'the app icon'],
+    [`src/assets/${TARGET.icon}`,                             'the app icon'],
 ];
 for (const [rel, what] of need) {
     if (!fs.existsSync(path.join(ROOT, rel))) {
@@ -115,6 +137,14 @@ function setVersion(v) {
 function restoreVersion() {
     fs.writeFileSync(PKG_FILE, pkgText);
     if (lockText) fs.writeFileSync(LOCK_FILE, lockText);
+}
+
+// A release is what every installed copy updates from: it must carry the
+// Windows installer and latest.yml. One published from here would have
+// neither, and Windows users' ⟳ button would stop finding updates.
+if (PUBLISH && process.platform !== 'win32') {
+    fail(`Releases are published from Windows only for now.\n` +
+         `  To share a ${TARGET.os} copy, run "npm run dist" and send the file it makes.`);
 }
 
 if (PUBLISH) {
@@ -171,7 +201,7 @@ async function checkToken() {
     console.log('  GitHub token OK.');
 }
 
-console.log(`\n  ${PUBLISH ? 'Releasing' : 'Building'} Nexus Insights ${pkg.version}\n`);
+console.log(`\n  ${PUBLISH ? 'Releasing' : 'Building'} Nexus Insights ${pkg.version} for ${TARGET.os}\n`);
 
 // ---------------------------------------------------------------------------
 // 2. Strip personal data (temporarily)
@@ -218,7 +248,7 @@ try {
         const bin = path.join(ROOT, 'node_modules', '.bin',
             process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
         console.log('  Running electron-builder (takes a minute or two)...\n');
-        const r = spawnSync(`"${bin}"`, ['--win', 'nsis', '--x64', '--publish', PUBLISH ? 'always' : 'never'], {
+        const r = spawnSync(`"${bin}"`, [...TARGET.args, '--publish', PUBLISH ? 'always' : 'never'], {
             cwd: ROOT,
             stdio: 'inherit',
             shell: true,
@@ -249,11 +279,11 @@ if (DRY_RUN) { console.log('  Dry run OK.\n'); process.exit(0); }
 // ---------------------------------------------------------------------------
 const distDir = path.join(ROOT, 'dist');
 const setup = fs.readdirSync(distDir)
-    .filter(f => /Setup.*\.exe$/i.test(f))
+    .filter(f => TARGET.file.test(f))
     .map(f => ({ f, t: fs.statSync(path.join(distDir, f)).mtimeMs }))
     .sort((a, b) => b.t - a.t)[0];
 
-if (!setup) fail('Build reported success but no Setup .exe was found in dist\\.');
+if (!setup) fail(`Build reported success but no ${TARGET.os} installer was found in dist.`);
 
 const mb = (fs.statSync(path.join(distDir, setup.f)).size / 1048576).toFixed(0);
 
