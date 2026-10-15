@@ -493,3 +493,9 @@ body {
     text-align: center;
 }
 .setup-legal a { color: var(--text-secondary); }
+
+/* Settings gear: spin the icon, not the button. Rotating the whole button
+   turned its square hover background into a diamond. Same treatment as ⟳. */
+.titlebar-btn--settings:hover { transform: none; }
+.titlebar-btn--settings svg { transition: transform 0.4s ease; }
+.titlebar-btn--settings:hover svg { transform: rotate(60deg); }
