@@ -63,6 +63,7 @@ src/
 │   ├── coachingProgress.js    # Coaching calculations (pure, tested)
 │   ├── coachingEngine.js      # Picks the focus metric
 │   ├── chatPanel.js / chatAgent.js / chatTools.js / markdown.js  # Chat page (Ollama)
+│   ├── championsPanel.js      # Champions page (numbers: services/championStats.js)
 │   ├── skins.js / skinsPanel.js   # Skins data + Skins page
 │   ├── statHistory.js         # Click-a-card history chart
 │   ├── winRateColor.js        # Win-rate colour scale
@@ -98,7 +99,7 @@ src/
 
 - **Dark theme** throughout, with gold/teal CSS custom property accents
 - **Title bar**: Nexus logo + name on the left, ⟳ update button and ⚙ settings (SVG) top-right
-- **Left nav rail** (always visible): Analytics (default), Match History, Coaching, Chat, Skins
+- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Coaching, Chat, Skins
 - **Analytics tab**:
   - Summoner Name # Tag input + "Sync Matches" button at the top
   - Progress bar with new/filtered/existing counters during sync
@@ -199,6 +200,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | Raw data | `rawJson` (BLOB, gzip), `timelineJson` (BLOB, gzip) |
 | Advanced | `csDiff15`, `goldDiff15`, `xpDiff15`, `firstBlood`, `dmgGoldRatio`, `isolatedDeaths`, `objectiveRate` |
 | Team impact | `impactScore`, `impactRank` (1–10, NULL = not computed yet), `impactTag` (`MVP`/`SVP`/NULL) |
+| Lane opponent | `laneOpponent`: their champion (same `teamPosition`, other team); `''` = none, NULL = not computed yet |
 
 **Indexes**: `idx_gameCreation` (DESC), `idx_championName`
 
@@ -482,6 +484,33 @@ calendar months, ending with the current month** (current month = "so far").
 - Slide animation is `grid-template-rows: 0fr → 1fr` on `.stat-history-panel`.
 - Real data: 58 chartable cards, slowest 12 ms to compute.
 
+### Champions page (2026-10, issue #4)
+
+`components/championsPanel.js` (UI) + `services/championStats.js` (pure,
+tested). Nav rail button between Match History and Coaching.
+
+- Left: sortable table of every champion played: games, win rate, KDA,
+  CS/min, DMG/min, KP, average impact rank. Formulas match `calcOverview`
+  (KDA summed, the rest averaged per game) so it agrees with Analytics.
+  Sorting a stat column sinks champions with < `LOW_SAMPLE` (5) games below
+  the rest, so 1-game 100% rows don't top the win-rate sort.
+- Right: the picked champion: role chips (when played in several roles),
+  rune pages (keystone + secondary tree), core items, matchups vs the lane
+  opponent (games, W–L, win rate, KDA, GD@15, CSD@15). A matchup row expands
+  to the items and keystones you used in it.
+- Input: `window.championPoolMatches`, set in `renderFilteredMatches`: the
+  game-mode filter with remakes excluded, but **not** the champion filter
+  (the page lists every champion). Re-renders when filters change while open.
+- Items = each game's final build (item0–5, counted once per game).
+  `isCoreItem` keeps finished items via Data Dragon: no consumables or
+  trinkets, boots from 900 g, otherwise no `into` and ≥ 1000 g. Build order
+  needs purchase events (issue #7).
+- `laneOpponent` is a computed-stats column (sync + backfill). The backfill
+  and `backfillAnalyticsInBackground` also pick rows where it is NULL; "no
+  lane opponent" is stored as '' so those rows aren't re-indexed forever.
+  Indexing 562 games took ~6 s.
+- No JSON blobs are read; everything comes from scalar columns.
+
 ### Remakes are excluded from statistics
 
 Games abandoned in the first minutes (someone failed to connect) are stored and
@@ -581,7 +610,7 @@ The sliding drawer is gone. `#navDrawer` carries `nav-rail` and is always
 visible (78px, `--nav-rail-width`; `body` is padded by that). Buttons stack
 icon over label. `openNavDrawer/closeNavDrawer/toggleNavDrawer` in renderer.js
 are kept as no-ops so older callers don't break. Pages: Analytics, Match
-History, Coaching, Chat (`TOP_TABS` in renderer.js).
+History, Champions, Coaching, Chat, Skins (`TOP_TABS` in renderer.js).
 
 ### Chat page (Ollama) — 2026-10
 

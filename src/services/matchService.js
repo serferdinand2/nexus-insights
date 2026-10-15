@@ -143,7 +143,7 @@ async function getMatches(limit = null) {
                 dmgShare, killParticipation, dmgTakenPerDeath, multikills,
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
-                impactScore, impactRank, impactTag
+                impactScore, impactRank, impactTag, laneOpponent
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -461,6 +461,7 @@ const COMPUTED_STAT_COLUMNS = [
     'enemyTeamKills', 'visionAdvantage', 'goldShare',
     'statsComputedAt', 'isRemake',
     'impactScore', 'impactRank', 'impactTag',
+    'laneOpponent',
 ];
 
 /**
@@ -499,15 +500,17 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank IS NULL` picks up rows indexed before team impact existed.
- * It can't stay NULL after a pass: the champion + team that find "you" come
- * from the same participant the row was synced from.
+ * `impactRank IS NULL` / `laneOpponent IS NULL` pick up rows indexed before
+ * those columns existed. Neither stays NULL after a pass: the champion + team
+ * that find "you" come from the same participant the row was synced from, and
+ * "no lane opponent" is stored as ''.
  */
 async function backfillComputedStats(onProgress) {
     const rows = await dbAll(`
         SELECT matchId, championName, teamId
         FROM matches
-        WHERE rawJson IS NOT NULL AND (statsComputedAt IS NULL OR impactRank IS NULL)
+        WHERE rawJson IS NOT NULL
+          AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -557,7 +560,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         shutdownsClaimed: null, shutdownsGiven: null, shutdownBountyGiven: null,
         enemyTeamKills: null, visionAdvantage: null, goldShare: null,
         isRemake: null,
-        impactScore: null, impactRank: null, impactTag: null
+        impactScore: null, impactRank: null, impactTag: null,
+        laneOpponent: null
     };
 
     try {
@@ -573,6 +577,12 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
 
         // === First Blood ===
         result.firstBlood = (me.firstBloodKill || me.firstBloodAssist) ? 1 : 0;
+
+        // === Lane opponent: same position on the other team ('' = none) ===
+        const opponent = me.teamPosition
+            ? participants.find(p => p.teamId !== me.teamId && p.teamPosition === me.teamPosition)
+            : null;
+        result.laneOpponent = opponent ? opponent.championName : '';
 
         // === Team impact: score, rank of 10, MVP/SVP ===
         const impact = computeTeamImpact(participants).get(myPId);

@@ -30,6 +30,7 @@ window.require('./components/windowControls'); // registers initWindowControls
 window.require('./components/updateButton');   // registers initUpdateButton (titlebar ⟳)
 window.require('./components/skinsPanel');     // registers applySavedSkin, openSkinsPanel
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
+window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
 
 // Destructure named exports needed inside renderer.js itself
 const {
@@ -627,6 +628,14 @@ window.renderFilteredMatches = async function (opts = {}) {
         // Analytics always uses queue+champion filter — calendar selection is display-only
         window.renderAnalyticsTab(statsMatches, []);
 
+        // The Champions page follows the game-mode filter but lists every
+        // champion, so it gets the list before the champion filter.
+        window.championPoolMatches = window.excludeRemakes(queueFiltered);
+        const champTab = document.getElementById('champions-tab');
+        if (champTab && champTab.style.display !== 'none' && typeof window.openChampionsPanel === 'function') {
+            window.openChampionsPanel();
+        }
+
         // Keep Time Analytics (calendar, time-of-day, best day, stamina, streaks) in sync
         window._calendarFilteredMatches = statsMatches;
         if (typeof window.renderCalendarMonthView === 'function') window.renderCalendarMonthView(statsMatches);
@@ -929,6 +938,7 @@ let coachingPanelLoaded = false;
 const TOP_TABS = {
     analytics: { panel: 'analytics-tab', nav: 'navAnalytics' },
     history:   { panel: 'history-tab',   nav: 'navHistory'   },
+    champions: { panel: 'champions-tab', nav: 'navChampions' },
     coaching:  { panel: 'coaching-tab',  nav: 'navCoaching'  },
     chat:      { panel: 'chat-tab',      nav: 'navChat'      },
     skins:     { panel: 'skins-tab',     nav: 'navSkins'     },
@@ -964,6 +974,10 @@ window.switchTopTab = function (tab) {
 
     if (tab === 'chat' && typeof window.openChatPanel === 'function') {
         window.openChatPanel();
+    }
+
+    if (tab === 'champions' && typeof window.openChampionsPanel === 'function') {
+        window.openChampionsPanel();
     }
 };
 
@@ -1049,9 +1063,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function backfillAnalyticsInBackground() {
     try {
-        // impactRank: rows indexed before team impact existed (issue #2)
+        // impactRank / laneOpponent: rows indexed before those existed (#2, #4)
         const pending = (window.matchesData || []).filter(
-            m => m.statsComputedAt == null || m.impactRank == null
+            m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null
         );
         if (pending.length === 0) return;
 

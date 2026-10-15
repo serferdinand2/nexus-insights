@@ -56,6 +56,9 @@
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg></span><span class="nav-text">Match History</span>
             <span class="nav-count" id="navHistoryCount"></span>
         </button>
+        <button class="nav-drawer-btn" id="navChampions" onclick="switchTopTab('champions')">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span><span class="nav-text">Champions</span>
+        </button>
         <button class="nav-drawer-btn" id="navCoaching" onclick="switchTopTab('coaching')">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span><span class="nav-text">Coaching</span>
             <span class="nav-badge" id="coachingBadge"></span>
@@ -478,6 +481,22 @@
                     </div>
                 </div>
             </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Champions Tab — components/championsPanel.js -->
+    <div id="champions-tab" style="display:none;">
+        <div class="champions-shell">
+            <div class="coach-header">
+                <div>
+                    <h2>Champions</h2>
+                    <p>Your results on each champion, with the current game-mode filter. Pick a champion for its rune pages, items and matchups.</p>
+                </div>
+            </div>
+            <div class="champions-layout">
+                <div class="champions-list" id="championsList"></div>
+                <div class="champions-detail" id="championsDetail"></div>
             </div>
         </div>
     </div>

@@ -5215,3 +5215,328 @@ body {
 .titlebar-btn--update.has-update { color: var(--success); }
 .titlebar-btn--update.has-update .update-dot { display: block; }
 
+/* ── Champions page (components/championsPanel.js) ─────────────
+   Sortable champion table on the left, the picked champion's rune
+   pages, items and matchups on the right.
+   ──────────────────────────────────────────────────────────── */
+.champions-shell {
+    max-width: 1500px;
+    margin: 0 auto;
+    padding: calc(var(--titlebar-height) + var(--gutter)) 24px 40px;
+}
+
+.champions-layout {
+    display: grid;
+    grid-template-columns: minmax(560px, 6fr) 7fr;
+    gap: var(--gutter);
+    align-items: start;
+}
+
+@media (max-width: 1200px) {
+    .champions-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+.champions-list,
+.champions-detail {
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+}
+
+.champions-list {
+    max-height: calc(100vh - 190px);
+    overflow: auto;
+}
+
+.champions-detail {
+    padding: 16px;
+}
+
+.ch-table,
+.ch-subtable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.ch-table th,
+.ch-subtable th {
+    padding: 8px 6px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.ch-table th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: rgba(18, 20, 28, 0.97);
+    cursor: pointer;
+    user-select: none;
+}
+
+.ch-table th:hover,
+.ch-table th.sorted {
+    color: var(--text-primary);
+}
+
+.ch-table td,
+.ch-subtable td {
+    padding: 6px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.ch-table .num,
+.ch-subtable .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.ch-table tbody tr {
+    cursor: pointer;
+}
+
+.ch-table tbody tr:hover,
+.ch-matchup:hover {
+    background: var(--surface-hover);
+}
+
+.ch-table tbody tr.selected {
+    background: rgba(var(--accent-rgb), 0.08);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.ch-name,
+.ch-cellrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.ch-role {
+    color: var(--text-tertiary);
+    font-size: 10px;
+}
+
+.ch-icon {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+}
+
+.ch-icon--sm {
+    width: 22px;
+    height: 22px;
+}
+
+.ch-icon--lg {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+}
+
+.ch-item,
+.ch-rune {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+}
+
+.ch-rune--sm {
+    width: 16px;
+    height: 16px;
+    margin-left: -4px;
+    opacity: 0.85;
+}
+
+.ch-wr {
+    font-weight: 700;
+}
+
+.ch-wr.is-low,
+tr.is-low td {
+    opacity: 0.6;
+}
+
+/* Already dimmed by its row: don't dim twice */
+tr.is-low .ch-wr.is-low {
+    opacity: 1;
+}
+
+.ch-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.ch-detail-title {
+    flex: 1;
+    min-width: 0;
+}
+
+.ch-detail-title h3 {
+    margin: 0 0 2px;
+    color: var(--text-primary);
+    font-size: 20px;
+}
+
+.ch-detail-sub {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.ch-detail-wr {
+    font-size: 28px;
+    font-weight: 800;
+    line-height: 1;
+    text-align: right;
+}
+
+.ch-detail-wr span {
+    display: block;
+    margin-top: 4px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.ch-roles {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.ch-chip {
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.ch-chip span {
+    color: var(--text-tertiary);
+}
+
+.ch-chip:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: var(--text-primary);
+}
+
+.ch-chip.active {
+    border-color: rgba(var(--accent-rgb), 0.5);
+    background: rgba(var(--accent-rgb), 0.16);
+    color: var(--accent-primary);
+}
+
+.ch-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--gutter);
+    margin-top: 14px;
+}
+
+.ch-card {
+    min-width: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.12);
+}
+
+.ch-card--wide {
+    grid-column: 1 / -1;
+}
+
+.ch-card-title {
+    margin-bottom: 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.ch-card-title span {
+    margin-left: 6px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.ch-matchup {
+    cursor: pointer;
+}
+
+.ch-caret {
+    width: 10px;
+    color: var(--text-tertiary);
+}
+
+.ch-matchup-detail td {
+    background: rgba(0, 0, 0, 0.18);
+}
+
+.ch-builds {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 4px 0 4px 18px;
+}
+
+.ch-builds-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.ch-builds-label {
+    flex: 0 0 100px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+}
+
+.ch-builds-items {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 14px;
+}
+
+.ch-build {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--text-secondary);
+}
+
+.ch-placeholder,
+.ch-empty,
+.ch-note {
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+.ch-placeholder {
+    padding: 24px;
+    text-align: center;
+}
+
+.ch-note {
+    margin-top: 10px;
+}
