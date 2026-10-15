@@ -168,3 +168,132 @@
     top: 2px;
     right: 6px;
 }
+
+/* ==========================================================================
+   Match History
+   ========================================================================== */
+.section-header { margin-bottom: var(--s3); }
+.section-title {
+    font-size: var(--t-label);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+}
+.match-count-badge {
+    font-size: var(--t-small);
+    background: transparent;
+    border-color: var(--line-strong);
+    border-radius: 999px;
+    letter-spacing: 0;
+}
+/* the list sat in a frame inside the table frame inside the main card */
+.match-list { background: transparent; padding: 0; }
+.match-table-container {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+}
+.match-table-container::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); }
+.match-table-container::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.24); }
+.match-table-container::-webkit-scrollbar-track { background: transparent; }
+
+.match-table thead th {
+    background: rgb(22, 24, 30);
+    border-bottom: 1px solid var(--line-strong);
+    box-shadow: none;
+}
+.match-table th {
+    padding: var(--s3) var(--s2);
+    font-size: var(--t-label);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+.match-table td { font-size: 14px; }
+.match-table tbody tr:hover { transform: none; background: var(--surface-hover); }
+.table-outcome-badge { border-radius: 999px; padding: 3px 10px; }
+
+.load-more-bar {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    font-size: var(--t-body);
+}
+.load-more-btn,
+.load-all-btn {
+    height: 36px;
+    padding: 0 var(--s4);
+    border-radius: var(--r-ctl);
+    font-size: var(--t-body);
+}
+
+/* ==========================================================================
+   Coaching
+   ========================================================================== */
+.coach-focus { border-radius: var(--r-card); }
+.coach-watch,
+.coach-rule,
+.coach-note,
+.coach-progress-cell {
+    background: var(--surface);
+    border-radius: var(--r-ctl);
+}
+.coach-note.warn { border-radius: 0 var(--r-ctl) var(--r-ctl) 0; }
+
+/* 9–10px labels were too small to read; one label size everywhere */
+.coach-section-label { color: var(--text-secondary); }   /* was teal; headings are grey everywhere else */
+.coach-section-label,
+.coach-rule-label,
+.coach-progress-label,
+.coach-focus-gain-label {
+    font-size: var(--t-label);
+    letter-spacing: 0.04em;
+}
+.coach-btn {
+    height: 36px;
+    padding: 0 var(--s4);
+    border-radius: var(--r-ctl);
+    font-size: var(--t-body);
+}
+.coach-mini-btn {
+    padding: 4px var(--s3);
+    border-radius: var(--r-ctl);
+    font-size: var(--t-small);
+}
+
+/* ==========================================================================
+   Chat
+   ========================================================================== */
+.chat-messages {
+    background: var(--surface);
+    border-color: var(--line);
+    border-radius: var(--r-card);
+}
+.chat-composer { border-radius: var(--r-card); border-color: var(--line-strong); }
+.chat-btn,
+.chat-model,
+.chat-send { border-radius: var(--r-ctl); }
+.chat-btn,
+.chat-model { height: 34px; border-color: var(--line-strong); }
+.chat-bubble { border-radius: var(--r-card); }
+.chat-msg--user .chat-bubble { border-bottom-right-radius: 4px; }
+.chat-msg--bot .chat-bubble  { border-bottom-left-radius: 4px; background: var(--surface); border-color: var(--line); }
+
+/* ==========================================================================
+   Shared bits on every page
+   ========================================================================== */
+.stat-history-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+}
+
+/* Page titles (Coaching, Chat) share one size */
+.coach-header h2,
+.chat-title {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--gold-light);
+}
+.coach-header p,
+.chat-sub { font-size: var(--t-small); color: var(--text-secondary); }
