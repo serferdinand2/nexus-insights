@@ -12,7 +12,9 @@
  * resources/app-update.yml). The repo is public, so no token ships in the app.
  *
  * Only the installed (packaged) app can update itself. Running from source,
- * the button reports 'dev' — use `git pull` there.
+ * the button reports 'dev' — use `git pull` there. An installed copy that
+ * can't self-update (macOS/Linux: main passes no autoUpdater) reports
+ * 'manual' with the releases page URL instead.
  *
  * Everything the renderer sees goes through one channel, 'update:status',
  * as { state, version?, percent?, message? }.
@@ -44,9 +46,10 @@ function friendlyError(err) {
  * @param {Function} deps.beforeRestart () => void — lets main skip close-to-tray
  * @param {boolean}  deps.isPackaged
  * @param {string}   deps.currentVersion
+ * @param {string}   [deps.releasesUrl] where to download by hand when there's no autoUpdater
  * @param {Function} [deps.setTimeout]
  */
-function createUpdater({ autoUpdater, send, beforeRestart, isPackaged, currentVersion,
+function createUpdater({ autoUpdater, send, beforeRestart, isPackaged, currentVersion, releasesUrl,
                          setTimeout: later = setTimeout }) {
     let state = 'idle';          // idle | checking | downloading | ready
     let wantInstall = false;     // true when the user asked (not the quiet startup check)
@@ -107,8 +110,12 @@ function createUpdater({ autoUpdater, send, beforeRestart, isPackaged, currentVe
      * @param {{ quiet?: boolean }} opts  quiet = startup check, never downloads
      */
     async function check({ quiet = false } = {}) {
-        if (!isPackaged || !autoUpdater) {
+        if (!isPackaged) {
             if (!quiet) emit({ state: 'dev', version: currentVersion });
+            return;
+        }
+        if (!autoUpdater) {
+            if (!quiet) emit({ state: 'manual', version: currentVersion, url: releasesUrl });
             return;
         }
         if (state === 'checking' || state === 'downloading' || state === 'ready') {

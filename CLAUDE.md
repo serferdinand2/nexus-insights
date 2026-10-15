@@ -8,7 +8,8 @@
 > shareable installer + `Publish Update.bat`, UI polish layer (`polish.css`),
 > Skins page with background dim, Coaching page rewritten again around
 > game-to-game progress (`coachingProgress.js`), stat-history charts,
-> win-rate colour scale.
+> win-rate colour scale. macOS/Linux builds via `npm run dist` on that OS
+> (no auto-update there).
 >
 > **2026-08 changes**: left nav drawer replaces the top tab bar; game-mode
 > filters moved onto the summoner row; per-match LP tracking (intra-day
@@ -38,7 +39,7 @@ A **League of Legends personal analytics desktop app** built with **Electron + v
 | Database | SQLite3 (`sqlite3` npm package — not `better-sqlite3`) |
 | HTTP | Axios 1.6.0 |
 | Compression | Node.js built-in zlib (gzip) |
-| Build | electron-builder 25.1.8 (NSIS installer, Windows x64 only) |
+| Build | electron-builder 25.1.8 (Windows NSIS x64; macOS dmg and Linux AppImage, host arch, built on that OS) |
 | Font | Inter (Google Fonts) |
 
 ---
@@ -388,6 +389,41 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
   winCodeSign. Build on Windows. A portable zip can be assembled by hand there
   (asar CLI + raw Electron copy + `resedit` for the exe icon).
 
+### macOS / Linux builds — 2026-10
+
+`npm run dist` builds for the OS it runs on (`TARGETS` in
+`scripts/build-installer.js`): `Nexus-Insights-mac-<arch>.dmg` or
+`Nexus-Insights-linux-<arch>.AppImage`, host arch.
+
+- **No cross-builds.** `npmRebuild: false` + `electronDist` mean the sqlite3
+  `.node` and Electron are whatever `npm install` fetched for this machine.
+  An x64 Mac build made on Apple Silicon would ship an arm64 sqlite3.
+- **`--publish` refuses outside Windows.** A release is what installed copies
+  update from: a Mac-made one would lack `latest.yml` and break Windows
+  updates. Mac/Linux copies get no self-update. `main.js` only loads
+  electron-updater on win32, and elsewhere `updater.js` reports `manual`, so the ⟳
+  button opens `/releases/latest`.
+- **`scripts/after-pack.js` ad-hoc signs the .app** (`codesign --deep -s -`).
+  Without a Developer ID, electron-builder skips signing and the bundle seal
+  is broken. Apple Silicon then calls a downloaded copy "damaged" (only fixable
+  with `xattr -cr`). With ad-hoc signing users get "Open Anyway" in Privacy &
+  Security instead. `spctl` still says "rejected", which is expected.
+- `main.js` platform branches:
+  - **macOS menu:** App/Edit/Window menu (`setMacMenu`). With no menu,
+    Cmd+C/V/Q do nothing, so you couldn't even paste the API key.
+  - **Tray icon:** `trayImage()` scales `icon-256.png` (.ico is Windows-only).
+  - **Shortcuts:** Cmd instead of Ctrl.
+  - **Window lifetime:** `showMainWindow` rebuilds a closed window, since macOS
+    keeps the app running.
+  - **Login items:** not registered from source on macOS (that would launch
+    bare Electron at login), and not on Linux at all. Settings relabels the
+    toggle "Open at login" on macOS and hides it on Linux.
+- Running the app binary from a shell spawned by the VS Code / Claude
+  extension: unset `ELECTRON_RUN_AS_NODE`, or Electron runs as plain Node
+  (silent, no window).
+- Packaged macOS "Open at login" is untested: it can't be checked without
+  editing the machine's login items.
+
 ### General
 
 - DB file (`nexus_data.sqlite`) is ~131MB with compressed JSON blobs
@@ -397,7 +433,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
   contextIsolation is parked: it needs analytics extraction moved to main first.
 - All rendering is DOM manipulation — no virtual DOM or framework
 - CSS uses custom properties for theming (dark theme, gold/teal accents)
-- `electron-builder` configured for Windows x64 NSIS installer only
+- `electron-builder` targets: Windows NSIS x64, macOS dmg, Linux AppImage (see "macOS / Linux builds")
 - `coachingPanel.js` opens its **own** SQLite connection (read-only) because it is lazily loaded and needs a direct DB handle separate from the main `database.js` singleton
 
 ### Lazy JSON Loading (perf-critical)

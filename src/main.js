@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, shell, nativeImage } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 
@@ -6,10 +6,26 @@ const { initDatabase } = require('./services/database');
 const { loadConfig, setConfigValue } = require('./services/config');
 const { createUpdater } = require('./services/updater');
 
+const IS_MAC = process.platform === 'darwin';
+
 // No application menu — the File/Edit/View/Window/Help bar is Electron's
 // default, not something this app uses. Removing it also removes its
 // accelerators, so the useful ones are re-bound below.
-Menu.setApplicationMenu(null);
+// macOS is the exception (see setMacMenu): its menu bar sits at the top of the
+// screen, not in the window, and copy/paste only work through it.
+if (!IS_MAC) Menu.setApplicationMenu(null);
+
+/**
+ * macOS: Cmd+C/V/X/A/Z and Cmd+Q are handled by menu roles, so with no menu
+ * you couldn't even paste an API key. Keep just the App, Edit and Window menus.
+ */
+function setMacMenu() {
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    { role: 'appMenu' },
+    { role: 'editMenu' },
+    { role: 'windowMenu' }
+  ]));
+}
 
 // Only one copy may run. Without this, launching from the desktop shortcut
 // while the tray copy is already running would open a second window — and two
@@ -25,7 +41,24 @@ let mainWindow = null;
 // (always means quit). Without it, Quit from the tray would just hide again.
 let isQuitting = false;
 
-const ICON_PATH = path.join(__dirname, 'assets', 'icon.ico');
+// Windows wants the .ico (it carries every size). Elsewhere .ico isn't
+// supported; Linux uses the PNG for the window, macOS takes its icon from the
+// app bundle.
+const ICON_PATH = path.join(__dirname, 'assets',
+  process.platform === 'win32' ? 'icon.ico' : 'icon.png');
+
+/**
+ * Tray icon. A full-size PNG would be drawn at its full size in the macOS
+ * menu bar, so scale it to the bar: 18pt (rendered at 2x for Retina) on
+ * macOS, 24px on Linux.
+ */
+function trayImage() {
+  if (process.platform === 'win32') return ICON_PATH;
+  const src = nativeImage.createFromPath(path.join(__dirname, 'assets', 'icon-256.png'));
+  if (!IS_MAC) return src.resize({ width: 24, height: 24, quality: 'best' });
+  const retina = src.resize({ width: 36, height: 36, quality: 'best' });
+  return nativeImage.createFromBuffer(retina.toPNG(), { scaleFactor: 2 });
+}
 
 /**
  * Reflect the startOnLogin setting into the OS.
@@ -95,6 +128,12 @@ function startupShimSource(appDir) {
  */
 function applyLoginItemSetting(enabled) {
   if (process.platform === 'linux') return; // no supported API
+  // From source on macOS the executable is bare Electron, so this would open
+  // Electron's welcome screen at every login. Only the installed app registers.
+  if (IS_MAC && !app.isPackaged) return;
+  // macOS logs "Operation not permitted" when asked to remove a login item
+  // that was never added — which would otherwise happen on every launch.
+  if (IS_MAC && !enabled && !app.getLoginItemSettings().openAtLogin) return;
 
   try {
     if (process.platform !== 'win32' || app.isPackaged) {
@@ -145,7 +184,12 @@ function applyLoginItemSetting(enabled) {
 }
 
 function showMainWindow() {
-  if (!mainWindow) return;
+  // macOS keeps running after its last window is closed (close-to-tray off),
+  // so the tray, the Dock and a second launch may find no window to show.
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (app.isReady()) mainWindow = createWindow();
+    return;
+  }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
@@ -154,7 +198,7 @@ function showMainWindow() {
 function createTray() {
   if (tray) return;
   try {
-    tray = new Tray(ICON_PATH);
+    tray = new Tray(trayImage());
   } catch (err) {
     console.warn('Tray icon could not be created:', err.message);
     return;
@@ -177,7 +221,7 @@ function createTray() {
   tray.on('double-click', showMainWindow);
 }
 
-function createWindow() {
+function createWindow({ startHidden = false } = {}) {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -190,7 +234,7 @@ function createWindow() {
 
     // Taskbar / alt-tab icon. Frameless windows have no title bar to show it,
     // but Windows still uses it everywhere else.
-    icon: path.join(__dirname, 'assets', 'icon.ico'),
+    icon: ICON_PATH,
 
     // Frameless: the OS title bar is replaced by the in-app header, which
     // carries the drag region and the minimise/maximise/close buttons.
@@ -226,11 +270,6 @@ function createWindow() {
     if (!url.startsWith('file:')) { event.preventDefault(); openOutside(url); }
   });
 
-  // Launched by Windows at login? Start straight into the tray rather than
-  // popping a window in front of whatever the user is doing.
-  const startHidden = process.argv.includes('--hidden') ||
-                      app.getLoginItemSettings().wasOpenedAsHidden;
-
   // Show only once there's something to show
   win.once('ready-to-show', () => { if (!startHidden) win.show(); });
 
@@ -258,11 +297,12 @@ function createWindow() {
   win.webContents.on('before-input-event', (event, input) => {
     if (input.type !== 'keyDown') return;
     const key = (input.key || '').toLowerCase();
+    const mod = IS_MAC ? input.meta : input.control;   // Cmd on macOS
 
-    if (key === 'f12' || (input.control && input.shift && key === 'i')) {
+    if (key === 'f12' || (mod && input.shift && key === 'i')) {
       win.webContents.toggleDevTools();
       event.preventDefault();
-    } else if (input.control && key === 'r') {
+    } else if (mod && key === 'r') {
       win.webContents.reload();
       event.preventDefault();
     }
@@ -309,7 +349,10 @@ let updater = null;
 function getUpdater() {
   if (updater) return updater;
   let autoUpdater = null;
-  if (app.isPackaged) {
+  // Windows only. Releases carry just the Windows installer + latest.yml, and
+  // macOS won't apply an update to an unsigned app anyway. Elsewhere the
+  // button opens the releases page instead.
+  if (app.isPackaged && process.platform === 'win32') {
     try {
       ({ autoUpdater } = require('electron-updater'));
     } catch (err) {
@@ -320,6 +363,7 @@ function getUpdater() {
     autoUpdater,
     isPackaged: app.isPackaged,
     currentVersion: app.getVersion(),
+    releasesUrl: releasesUrl(),
     send: (status) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', status);
     },
@@ -328,6 +372,16 @@ function getUpdater() {
     beforeRestart: () => { isQuitting = true; },
   });
   return updater;
+}
+
+/** https://github.com/<owner>/<repo>/releases/latest, from package.json's publish block. */
+function releasesUrl() {
+  try {
+    const { owner, repo } = require('../package.json').build.publish[0];
+    return `https://github.com/${owner}/${repo}/releases/latest`;
+  } catch {
+    return null;
+  }
 }
 
 ipcMain.on('update:check', () => getUpdater().check());
@@ -339,8 +393,16 @@ app.on('second-instance', showMainWindow);
 
 app.whenReady().then(() => {
   console.log('App is ready, creating window...');
+  if (IS_MAC) setMacMenu();
   initDatabase();
-  mainWindow = createWindow();
+
+  // Launched at login? Start straight into the tray rather than popping a
+  // window in front of whatever the user is doing. (macOS 13+ ignores
+  // openAsHidden, so there wasOpenedAtLogin is the signal.)
+  const login = app.getLoginItemSettings();
+  const startHidden = process.argv.includes('--hidden') || login.wasOpenedAsHidden ||
+                      (IS_MAC && login.wasOpenedAtLogin);
+  mainWindow = createWindow({ startHidden });
   createTray();
 
   // Keep the OS in step with the saved preference on every launch — covers a
@@ -354,10 +416,8 @@ app.whenReady().then(() => {
     setTimeout(() => getUpdater().check({ quiet: true }), 8000);
   }
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();
-    else showMainWindow();
-  });
+  // macOS: clicking the Dock icon brings the window back (or rebuilds it).
+  app.on('activate', showMainWindow);
 });
 
 app.on('before-quit', () => { isQuitting = true; });

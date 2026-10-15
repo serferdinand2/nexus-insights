@@ -103,6 +103,17 @@ test('running from source reports dev instead of trying', async () => {
     assert.deepEqual(sent, [{ state: 'dev', version: '1.0.0' }]);
 });
 
+test('installed copy without self-update (macOS/Linux) points to the releases page', async () => {
+    const sent = [];
+    const url = 'https://github.com/o/r/releases/latest';
+    const up = createUpdater({ autoUpdater: null, isPackaged: true, currentVersion: '1.0.0',
+        releasesUrl: url, send: s => sent.push(s), beforeRestart() {} });
+    await up.check({ quiet: true });
+    assert.deepEqual(sent, [], 'the startup check stays silent');
+    await up.check();
+    assert.deepEqual(sent, [{ state: 'manual', version: '1.0.0', url }]);
+});
+
 test('friendly messages', () => {
     assert.match(friendlyError(new Error('HttpError: 404 ... latest.yml')), /No published release/);
     assert.match(friendlyError(new Error('HttpError: 403 rate limit exceeded')), /limiting/);
