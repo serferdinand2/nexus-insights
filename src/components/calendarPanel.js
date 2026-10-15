@@ -4,6 +4,7 @@
  */
 
 const { saveLpSnapshot, seedLpSnapshot, getLpHistory } = require('../services/matchService');
+const { wrColor, wrTextColor } = require('./winRateColor');
 
 // ---------------------------------------------------------------------------
 // CALENDAR NAVIGATION STATE  (module-scoped — only used by this file)
@@ -114,11 +115,11 @@ function hexToRgba(hex, alpha) {
 
 function getDayColor(wins, losses) {
     const total = wins + losses;
-    if (total === 0) return 'rgba(255,255,255,0.03)';
-    const wr = wins / total;
-    if (wr >= 0.55)   { const i = Math.min(total/10,1); return `hsl(168, ${50+i*30}%, ${40-i*15}%)`; }
-    if (wr <= 0.45)   { const i = Math.min(total/10,1); return `hsl(0,   ${50+i*30}%, ${40-i*15}%)`; }
-    return `rgba(255,255,255,${Math.min(0.2 + total * 0.05, 0.6)})`;
+    if (total === 0) return 'rgba(255,255,255,0.04)';
+    // Shared win-rate scale (winRateColor.js). Busier days are a bit more
+    // solid, so a 1-game day doesn't look as decisive as a 9-game one.
+    const alpha = 0.45 + 0.45 * Math.min(total / 8, 1);
+    return wrColor(wins / total, { alpha });
 }
 
 function updateCalPickerLabels() {
@@ -646,38 +647,21 @@ window.calculateTimeInsights = function (matches) {
     // ── Populate Day-of-Week bar chart ────────────────────────────────────────
     const dayChart = el('dayBarChart');
     if (dayChart) {
-        const wrValues = dayOrder.map(d => dayMap[d].total > 0 ? dayMap[d].wins / dayMap[d].total : null);
-        const validWRs = wrValues.filter(v => v !== null);
-        const maxDayWR = validWRs.length ? Math.max(...validWRs) : 1;
-        const minDayWR = validWRs.length ? Math.min(...validWRs) : 0;
-
-        dayChart.innerHTML = dayOrder.map((day, i) => {
+        // Bars sit on a fixed 30%–70% axis with a dashed 50% line, and use the
+        // shared win-rate colours — so a 48% day reads as "about even", not
+        // as the worst day just because the others were slightly better.
+        dayChart.innerHTML = dayOrder.map(day => {
             const v   = dayMap[day];
             const wr  = v.total > 0 ? v.wins / v.total : null;
             const pct = wr !== null ? Math.round(wr * 100) : null;
-            const barH = wr !== null ? Math.max(8, Math.round((wr / (maxDayWR || 1)) * 100)) : 0;
-
-            // Colour: green for best, red for worst, gradient otherwise
-            const isBest  = wr !== null && wr === maxDayWR && v.total >= 3;
-            const isWorst = wr !== null && wr === minDayWR && v.total >= 3;
-            let fillColor;
-            if (isBest)       fillColor = 'rgba(74,222,128,0.75)';
-            else if (isWorst) fillColor = 'rgba(248,113,113,0.75)';
-            else if (wr !== null) {
-                // Interpolate between red and green through teal
-                const norm = maxDayWR > minDayWR ? (wr - minDayWR) / (maxDayWR - minDayWR) : 0.5;
-                const h    = Math.round(norm * 140); // 0=red, 140=green
-                fillColor  = `hsla(${h}, 65%, 52%, 0.7)`;
-            } else {
-                fillColor = 'rgba(255,255,255,0.05)';
-            }
-
-            const extraClass = isBest ? ' day-best' : isWorst ? ' day-worst' : '';
+            const barH = wr !== null ? Math.round(Math.max(0.04, Math.min(1, (wr - 0.3) / 0.4)) * 100) : 0;
+            const tip = wr !== null ? `${day}: ${pct}% WR over ${v.total} game${v.total !== 1 ? 's' : ''}` : `${day}: no games`;
             return `
-                <div class="day-bar-col${extraClass}">
-                    <div class="day-bar-wr">${pct !== null ? pct + '%' : ''}</div>
+                <div class="day-bar-col" title="${tip}">
+                    <div class="day-bar-wr" style="color:${wrTextColor(wr)}">${pct !== null ? pct + '%' : ''}</div>
                     <div class="day-bar-fill-wrap">
-                        <div class="day-bar-fill" style="height:${barH}%;background:${fillColor};"></div>
+                        <div class="day-bar-mid" aria-hidden="true"></div>
+                        <div class="day-bar-fill" style="height:${barH}%;background:${wrColor(wr, { games: v.total })};"></div>
                     </div>
                     <div class="day-bar-label">${day}</div>
                 </div>`;
@@ -691,20 +675,9 @@ window.calculateTimeInsights = function (matches) {
             const wr     = b.total > 0 ? b.wins / b.total : null;
             const pct    = wr !== null ? Math.round(wr * 100) : null;
             const barW   = pct !== null ? pct : 0;
-            // Colour by WR threshold
-            let color;
-            if (pct === null)   color = 'rgba(255,255,255,0.15)';
-            else if (pct >= 60) color = 'rgba(74,222,128,0.75)';
-            else if (pct >= 50) color = 'rgba(96,165,250,0.75)';
-            else if (pct >= 40) color = 'rgba(251,191,36,0.75)';
-            else                color = 'rgba(248,113,113,0.75)';
-
-            const pctStr = pct !== null ? pct + '%' : '--';
-            const pctColor = pct === null ? 'rgba(255,255,255,0.3)'
-                           : pct >= 60    ? '#4ade80'
-                           : pct >= 50    ? '#60a5fa'
-                           : pct >= 40    ? '#fbbf24'
-                           :                '#f87171';
+            const color    = wrColor(wr, { games: b.total });
+            const pctStr   = pct !== null ? pct + '%' : '--';
+            const pctColor = wrTextColor(wr);
             return `
                 <div class="length-bar-row">
                     <span class="length-bar-label">${b.label}</span>

@@ -784,9 +784,9 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
         const isRanked = card.benchmarkable && card.color && card.benchmarkRank !== 'unrated';
 
         if (isRanked) {
+            // Rank colour lives in the top line, value and badge only — tinted
+            // backgrounds on every card made the row read as a rainbow.
             div.style.borderTop  = `3px solid ${card.color}`;
-            div.style.background = `linear-gradient(135deg, ${card.color}12 0%, ${card.color}06 100%), rgba(255,255,255,0.03)`;
-            div.style.boxShadow  = `0 0 18px ${card.color}18`;
         } else if (card.benchmarkable) {
             div.style.borderTop = '3px solid rgba(255,255,255,0.12)';
         } else {

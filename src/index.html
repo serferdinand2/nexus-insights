@@ -7,6 +7,7 @@
     <title>Nexus Insights</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles/app.css">
+    <link rel="stylesheet" href="styles/polish.css">
     <link rel="stylesheet" href="styles/toast.css">
 </head>
 
@@ -44,18 +45,18 @@
          body is padded by --nav-rail-width so content never sits under it. -->
     <nav class="nav-drawer nav-rail" id="navDrawer" aria-label="Sections">
         <button class="nav-drawer-btn active" id="navAnalytics" onclick="switchTopTab('analytics')">
-            <span class="nav-icon">📊</span><span class="nav-text">Analytics</span>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><span class="nav-text">Analytics</span>
         </button>
         <button class="nav-drawer-btn" id="navHistory" onclick="switchTopTab('history')">
-            <span class="nav-icon">📜</span><span class="nav-text">Match History</span>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M8 6h12M8 12h12M8 18h12"/><circle cx="3.5" cy="6" r="1"/><circle cx="3.5" cy="12" r="1"/><circle cx="3.5" cy="18" r="1"/></svg></span><span class="nav-text">Match History</span>
             <span class="nav-count" id="navHistoryCount"></span>
         </button>
         <button class="nav-drawer-btn" id="navCoaching" onclick="switchTopTab('coaching')">
-            <span class="nav-icon">🎯</span><span class="nav-text">Coaching</span>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span><span class="nav-text">Coaching</span>
             <span class="nav-badge" id="coachingBadge"></span>
         </button>
         <button class="nav-drawer-btn" id="navChat" onclick="switchTopTab('chat')">
-            <span class="nav-icon">💬</span><span class="nav-text">Chat</span>
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg></span><span class="nav-text">Chat</span>
         </button>
     </nav>
 
@@ -255,19 +256,11 @@
                                 </div>
                                 <div class="cal-month-grid" id="calendarMonthGrid"></div>
                                 <div class="calendar-legend">
-                                    <span class="legend-label">Bad day</span>
-                                    <div class="legend-gradient-bar"></div>
-                                    <span class="legend-label">Good day</span>
+                                    <span class="legend-label">Losing day</span>
+                                    <div class="legend-gradient-bar legend-gradient-bar--wr"></div>
+                                    <span class="legend-label">Winning day</span>
                                     <span class="legend-spacer"></span>
-                                    <span class="legend-label">Less</span>
-                                    <div class="legend-intensity">
-                                        <div class="legend-sq" style="background: rgba(255,255,255,0.07)"></div>
-                                        <div class="legend-sq" style="background: hsl(168,55%,25%)"></div>
-                                        <div class="legend-sq" style="background: hsl(168,65%,33%)"></div>
-                                        <div class="legend-sq" style="background: hsl(168,75%,40%)"></div>
-                                        <div class="legend-sq" style="background: hsl(168,75%,47%)"></div>
-                                    </div>
-                                    <span class="legend-label">More</span>
+                                    <span class="legend-label">number = games</span>
                                 </div>
                             </div>
 

@@ -1,0 +1,170 @@
+/* ==========================================================================
+   polish.css — consistency pass (2026-10), loaded AFTER app.css.
+
+   One small set of rules the whole app snaps to, instead of the dozens of
+   one-off sizes in app.css. Deleting the <link> to this file in index.html
+   brings back the old look exactly (apart from the win-rate colours, which
+   live in components/winRateColor.js).
+   ========================================================================== */
+
+:root {
+    /* Spacing scale */
+    --s1: 4px;  --s2: 8px;  --s3: 12px;  --s4: 16px;  --s5: 24px;  --s6: 32px;
+
+    /* Corner radius: controls / cards / large panels */
+    --r-ctl: 8px;  --r-card: 12px;  --r-panel: 16px;
+
+    /* Surfaces: one fill + one border for every card */
+    --surface:        rgba(255, 255, 255, 0.035);
+    --surface-hover:  rgba(255, 255, 255, 0.055);
+    --line:           rgba(255, 255, 255, 0.07);
+    --line-strong:    rgba(255, 255, 255, 0.14);
+
+    /* Type scale */
+    --t-label: 11px;    /* section titles, card labels (uppercase) */
+    --t-small: 12px;
+    --t-body:  13px;
+    --t-value: 26px;    /* big numbers on stat cards */
+}
+
+/* ── Section titles: one style everywhere ─────────────────────────────── */
+.insight-mini-label,
+.ta-card .insight-mini-label,
+.std-stat-label {
+    font-size: var(--t-label);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+/* ── Filter row: compact toggle chips instead of four wide boxes ──────── */
+.filter-options {
+    flex: 0 1 auto;
+    gap: var(--s2);
+    align-items: center;
+}
+.filter-checkbox {
+    flex: 0 0 auto !important;
+    min-width: 0 !important;
+    height: 36px;
+    padding: 0 var(--s4);
+    gap: 0;
+    border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--line-strong);
+    color: var(--text-secondary);
+    font-size: var(--t-body);
+}
+.filter-checkbox:hover { transform: none; background: var(--surface-hover); }
+/* the real checkbox stays for keyboard + screen readers, just not drawn */
+.filter-checkbox input[type="checkbox"] {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+}
+.filter-checkbox:has(input:checked) {
+    background: rgba(0, 207, 188, 0.12);
+    border-color: rgba(0, 207, 188, 0.45);
+}
+.filter-checkbox input[type="checkbox"]:checked ~ span { color: var(--accent-primary); }
+.filter-checkbox:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+
+.filter-clear-btn {
+    height: 36px;
+    padding: 0 var(--s3);
+    border: 0;
+    background: transparent;
+    font-size: var(--t-body);
+}
+.filter-clear-btn:hover { transform: none; }
+
+.champ-filter-wrapper select {
+    height: 36px;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-radius: var(--r-ctl);
+    border-color: var(--line-strong);
+}
+
+/* ── Stat cards: calm surface, rank colour only on line / value / badge ─ */
+.unified-stat-card {
+    background: var(--surface) !important;
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    box-shadow: none !important;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.unified-stat-card:hover,
+.unified-stat-card.stat-card--clickable:hover {
+    transform: none;
+    background: var(--surface-hover) !important;
+    border-color: var(--line-strong);
+}
+.std-stat-value {
+    font-size: var(--t-value);
+    line-height: 1.15;
+}
+
+/* ── Bottom section: drop the extra frame so cards sit on the main card ─ */
+.ta-panel {
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin-top: var(--s5);
+}
+.ta-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    padding: var(--s4);
+}
+.ta-card:hover {
+    background: var(--surface);
+    border-color: var(--line);
+}
+
+/* ── Win-rate visuals (colours come from winRateColor.js) ─────────────── */
+.legend-gradient-bar--wr {
+    background: linear-gradient(90deg,
+        rgba(220, 70, 70, 0.85), rgba(112, 117, 126, 0.85), rgba(34, 180, 100, 0.85));
+}
+.day-bar-fill-wrap { border-radius: 6px 6px 0 0; }
+.day-bar-fill      { border-radius: 6px 6px 0 0; }
+.day-bar-mid {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 50%;
+    border-top: 1px dashed rgba(255, 255, 255, 0.18);
+    z-index: 1;
+    pointer-events: none;
+}
+.day-bar-label { color: var(--text-secondary); }
+
+/* ── Left rail: line icons, badges tucked onto the icon ───────────────── */
+.nav-rail .nav-drawer-btn .nav-icon {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+}
+.nav-rail .nav-drawer-btn .nav-icon svg {
+    width: 22px;
+    height: 22px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.nav-rail .nav-drawer-btn .nav-icon svg circle[r="1"] { fill: currentColor; }
+.nav-rail .nav-drawer-btn { color: var(--text-secondary); }
+.nav-rail .nav-drawer-btn:hover { color: var(--text-primary); }
+.nav-rail .nav-drawer-btn.active { color: var(--accent-primary); }
+.nav-rail .nav-drawer-btn .nav-count,
+.nav-rail .nav-drawer-btn .nav-badge {
+    top: 2px;
+    right: 6px;
+}
