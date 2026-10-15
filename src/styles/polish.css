@@ -769,3 +769,10 @@ body {
 .app-container:has(> #analytics-tab[style*="none"]) {
     padding: 0;
 }
+
+/* Match History: the list kept a 24px top margin from when it sat under the
+   Analytics content. On its own page that stacked on the card padding, so the
+   label started far lower than the first row on Analytics. Match Analytics:
+   18px card padding, nothing extra. */
+#history-tab .main-card { padding-top: 18px; }
+#history-tab .match-history { margin-top: 0; }
