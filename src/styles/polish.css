@@ -451,3 +451,12 @@ body {
     padding-top: 0;
     border-top: 0;
 }
+
+/* One vertical rhythm on the Analytics page: filter row → stat tabs →
+   cards → (stat history chart) → calendar section, all 12px apart — the
+   same gap the cards already have between each other. */
+.analytical-tabs-container { margin-bottom: var(--gutter); }
+.unified-stats-grid       { gap: var(--gutter); }
+.ta-panel                 { margin-top: var(--gutter); }
+.stat-history-panel.open  { margin: var(--gutter) 0 0; }
+.ta-body                  { gap: var(--gutter); }
