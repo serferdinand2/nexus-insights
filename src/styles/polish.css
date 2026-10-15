@@ -38,55 +38,105 @@
     color: var(--text-secondary);
 }
 
-/* ── Filter row: compact toggle chips instead of four wide boxes ──────── */
-.filter-options {
-    flex: 0 1 auto;
-    gap: var(--s2);
+/* ── Filter row: same look as the Overview / Lane Phase … tab bar ────────
+   The filter group is a tab-bar container, each filter is a tab (grey text,
+   teal tint when on), Clear is an inactive tab. Sync is the same shape but
+   inverted: solid teal with dark text, because it's the one action button.
+   Everything on the row (inputs, Sync, filter bar, champion box) is 44px. */
+#filterSection .filter-options {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+    gap: 8px;
     align-items: center;
+    box-sizing: border-box;
+    height: 44px;
+    padding: 4px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
 }
-.filter-checkbox {
-    flex: 0 0 auto !important;
-    min-width: 0 !important;
-    height: 36px;
-    padding: 0 var(--s4);
+#filterSection .filter-options .filter-checkbox,
+#filterSection .filter-options .filter-clear-btn {
+    height: 100%;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    white-space: nowrap;
     gap: 0;
-    border-radius: 999px;
+    border: none;
+    border-radius: 8px;
     background: transparent;
-    border: 1px solid var(--line-strong);
-    color: var(--text-secondary);
-    font-size: var(--t-body);
+    color: rgba(255, 255, 255, 0.4);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: normal;
+    transform: none;
+    transition: all 0.2s ease;
 }
-.filter-checkbox:hover { transform: none; background: var(--surface-hover); }
+#filterSection .filter-options .filter-checkbox span { color: inherit; font-weight: inherit; }
+#filterSection .filter-options .filter-checkbox:hover,
+#filterSection .filter-options .filter-clear-btn:hover {
+    transform: none;
+    color: rgba(255, 255, 255, 0.8);
+    background: rgba(255, 255, 255, 0.04);
+    border-color: transparent;
+}
+/* filters share the bar evenly, like the stat tabs; Clear keeps its size */
+#filterSection .filter-options .filter-checkbox { flex: 1 1 0; min-width: 0; }
+#filterSection .filter-options .filter-clear-btn { flex: 0 0 auto; }
+
 /* the real checkbox stays for keyboard + screen readers, just not drawn */
-.filter-checkbox input[type="checkbox"] {
+#filterSection .filter-options .filter-checkbox input[type="checkbox"] {
     position: absolute;
     opacity: 0;
     width: 1px;
     height: 1px;
     pointer-events: none;
 }
-.filter-checkbox:has(input:checked) {
-    background: rgba(0, 207, 188, 0.12);
-    border-color: rgba(0, 207, 188, 0.45);
+#filterSection .filter-options .filter-checkbox:has(input:checked) {
+    background: rgba(0, 207, 188, 0.15);
+    color: #00cfbc;
+    box-shadow: 0 0 10px rgba(0, 207, 188, 0.1);
 }
-.filter-checkbox input[type="checkbox"]:checked ~ span { color: var(--accent-primary); }
-.filter-checkbox:has(input:focus-visible) { box-shadow: var(--focus-ring); }
+#filterSection .filter-options .filter-checkbox input[type="checkbox"]:checked ~ span { color: #00cfbc; font-weight: 600; }
+#filterSection .filter-options .filter-checkbox:has(input:focus-visible) { box-shadow: var(--focus-ring); }
 
-.filter-clear-btn {
-    height: 36px;
-    padding: 0 var(--s3);
-    border: 0;
-    background: transparent;
-    font-size: var(--t-body);
+/* Sync: tab shape, inverted colours */
+.input-group .input-field { box-sizing: border-box; height: 44px; }
+.sync-btn {
+    box-sizing: border-box;
+    height: 44px;
+    padding: 0 20px;
+    border-radius: 12px;
+    background: #00cfbc;
+    color: #04201d;
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: none;
+    letter-spacing: 0;
+    box-shadow: none;
+    transition: all 0.2s ease;
 }
-.filter-clear-btn:hover { transform: none; }
+.sync-btn:hover {
+    transform: none;
+    background: #19e0cd;
+    box-shadow: 0 0 10px rgba(0, 207, 188, 0.25);
+}
+.sync-btn:active { transform: none; background: #00b5a5; }
 
-.champ-filter-wrapper select {
-    height: 36px;
+#filterSection .champ-filter-wrapper select {
+    box-sizing: border-box;
+    height: 44px;
     padding-top: 0;
     padding-bottom: 0;
-    border-radius: var(--r-ctl);
-    border-color: var(--line-strong);
+    border-radius: 12px;
+    background-color: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.8);
+    font-size: 13px;
+    font-weight: 600;
 }
 
 /* ── Stat cards: calm surface, rank colour only on line / value / badge ─ */
@@ -391,3 +441,5 @@ body {
     color: var(--text-secondary);
     text-align: center;
 }
+.sync-btn:disabled,
+.sync-btn:disabled:hover { background: #00cfbc; box-shadow: none; }
