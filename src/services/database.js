@@ -290,7 +290,10 @@ function initDatabase() {
         -- 'MVP'/'SVP' tag. impactRank NULL = not computed yet.
         impactScore REAL,
         impactRank INTEGER,
-        impactTag TEXT
+        impactTag TEXT,
+        -- Lane opponent's champion (same teamPosition, other team) for the
+        -- Champions page matchups. '' = none (no position); NULL = not computed.
+        laneOpponent TEXT
       )
     `);
 
@@ -446,7 +449,8 @@ function initDatabase() {
       'isRemake INTEGER',
       'impactScore REAL',
       'impactRank INTEGER',
-      'impactTag TEXT'
+      'impactTag TEXT',
+      'laneOpponent TEXT'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion
