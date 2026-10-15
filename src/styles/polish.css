@@ -460,3 +460,26 @@ body {
 .ta-panel                 { margin-top: var(--gutter); }
 .stat-history-panel.open  { margin: var(--gutter) 0 0; }
 .ta-body                  { gap: var(--gutter); }
+
+/* ── Title bar name: part of the window chrome, not a headline ──────────
+   Was the only gold-gradient bold text in the app and sat 2px off the rail.
+   Now: app icon + name in the same quiet grey as the window buttons, left
+   edge lined up with the floating rail below it. */
+.titlebar { padding-left: var(--gutter); }
+.titlebar-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: rgba(255, 255, 255, 0.7);
+}
+.titlebar-logo {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    flex: 0 0 auto;
+}
