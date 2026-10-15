@@ -110,19 +110,19 @@ function parseOverlay(overlay) {
     return { rgb: `${m[1]}, ${m[2]}, ${m[3]}`, alpha: m[4] === undefined ? 1 : Number(m[4]) };
 }
 
-/** The dim a skin uses when the user hasn't set one (0 = none, 0.95 = almost black). */
+/** The dim a skin uses when the user hasn't set one (0 = none, 1 = solid colour, no picture). */
 function defaultDim(skin) {
     // Gradient skins are already dark enough to read on, so no extra tint.
     return skin.background.type === 'gradient' ? 0 : parseOverlay(skin.overlay).alpha;
 }
 
-const clampDim = d => Math.max(0, Math.min(0.95, Number(d)));
+const clampDim = d => Math.max(0, Math.min(1, Number(d)));
 
 /**
  * The CSS background-image value for a skin.
  * @param {object} skin
  * @param {{customImage?: string|null, random?: () => number, dim?: number|null}} [opts]
- *        dim: user's "Background dim" (0–0.95); null = the skin's default
+ *        dim: user's "Background dim" (0–1, 1 = solid colour); null = the skin's default
  */
 // The Nexus skin shows a random region — picked once per app run, so redraws
 // (dragging the dim slider, switching skins back) don't swap the picture.

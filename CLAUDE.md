@@ -562,7 +562,7 @@ sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
   (replaced the old random-background code in renderer.js). Saved as
   `config.skin`; a custom background image is copied into the data folder
   (`config.customBackground`). "Background dim" slider = `config.bgDim[skinId]`
-  (0–0.95; unset = skin default: region/image 0.85 or the skin overlay alpha,
+  (0–1; unset = skin default: region/image 0.85 or the skin overlay alpha,
   gradients 0). Region image is picked once per app run (`sessionRegion`).
   To add a skin, add an entry to `SKINS`.
 - `saveSetup` now merges into the existing config (it used to replace it and
