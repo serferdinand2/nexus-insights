@@ -106,8 +106,11 @@ function renderSkinsPanel() {
 }
 
 function updateDimLabel(v, isDefault) {
-    const out = $('skinDimValue');
-    if (out) out.textContent = `${v}%${isDefault ? ' (default)' : ''}`;
+    const box = $('skinDimInput');
+    // Don't overwrite what the user is in the middle of typing
+    if (box && document.activeElement !== box) box.value = v;
+    const tag = $('skinDimDefault');
+    if (tag) tag.textContent = isDefault ? '(default)' : '';
     const def = $('skinDimReset');
     if (def) def.hidden = !!isDefault;
 }
@@ -165,6 +168,34 @@ window.openSkinsPanel = function () {
             });
             slider.addEventListener('change', () => saveDim(slider.value / 100));
         }
+        // Type an exact value: applied on Enter (or when leaving the box),
+        // Escape puts back the current value.
+        const box = $('skinDimInput');
+        if (box) {
+            const commit = () => {
+                const raw = String(box.value).trim().replace('%', '');
+                const n = Math.round(Number(raw));
+                if (raw === '' || !Number.isFinite(n)) { renderSkinsPanel(); return; }
+                const v = Math.max(0, Math.min(100, n));
+                box.value = v;
+                if (slider) slider.value = v;
+                applySavedSkin(v / 100);
+                saveDim(v / 100);
+                updateDimLabel(v, false);
+            };
+            box.addEventListener('keydown', e => {
+                if (e.key === 'Enter') { e.preventDefault(); commit(); box.blur(); }
+                else if (e.key === 'Escape') {
+                    // Put the current value back first: leaving the box fires
+                    // 'change', which would otherwise apply the typed number.
+                    e.preventDefault();
+                    if (slider) box.value = slider.value;
+                    box.blur();
+                }
+            });
+            box.addEventListener('change', commit);
+        }
+
         const dimReset = $('skinDimReset');
         if (dimReset) dimReset.addEventListener('click', () => {
             saveDim(null);

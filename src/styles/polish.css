@@ -744,4 +744,20 @@ body {
 /* Background dim slider (Skins page) */
 .skins-dim-control { display: flex; align-items: center; gap: 10px; font-size: var(--t-small); }
 .skins-dim-control input[type="range"] { width: 220px; accent-color: var(--accent-primary); cursor: pointer; }
-.skins-dim-control output { min-width: 92px; font-weight: 700; color: var(--text-primary); font-size: var(--t-body); }
+.skins-dim-box {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-weight: 700; color: var(--text-primary); font-size: var(--t-body);
+}
+.skins-dim-box input {
+    width: 56px; height: 32px; box-sizing: border-box;
+    padding: 0 8px; text-align: right;
+    font: inherit; font-weight: 700; color: var(--text-primary);
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--r-ctl);
+    -moz-appearance: textfield;
+}
+.skins-dim-box input::-webkit-outer-spin-button,
+.skins-dim-box input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.skins-dim-box input:focus { outline: none; border-color: rgba(var(--accent-rgb), 0.6); box-shadow: var(--focus-ring); }
+#skinDimDefault { min-width: 56px; }
