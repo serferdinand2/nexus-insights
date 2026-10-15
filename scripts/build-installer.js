@@ -134,6 +134,43 @@ if (PUBLISH) {
     buildEnv = { ...process.env, GH_TOKEN: token };
 }
 
+/**
+ * Ask GitHub whether the token works *before* spending minutes on a build.
+ * A deleted or expired token otherwise only fails at the upload step with a
+ * wall of "401 Bad credentials" output.
+ */
+async function checkToken() {
+    if (!PUBLISH || DRY_RUN) return;
+    const { owner, repo } = pkg.build.publish[0];
+    const where = process.env.GH_TOKEN
+        ? 'the GH_TOKEN environment variable (remove it with:  setx GH_TOKEN ""  then open a new window)'
+        : '%APPDATA%\\nexus-insights\\github-token.txt';
+    let res;
+    try {
+        res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+            headers: { Authorization: `Bearer ${buildEnv.GH_TOKEN}`, 'User-Agent': 'nexus-insights-release' },
+        });
+    } catch (err) {
+        restoreVersion();
+        fail(`Couldn't reach GitHub (${err.message}). Check your internet connection.`);
+    }
+    if (res.status === 401) {
+        restoreVersion();
+        fail('GitHub rejected the token ("Bad credentials") - it was deleted, expired or mistyped.\n' +
+             '  Make a new one: github.com > Settings > Developer settings > Personal access tokens >\n' +
+             '  Fine-grained tokens > Generate new token. Repository access: only "nexus-insights".\n' +
+             '  Permissions: Contents = Read and write.\n' +
+             `  Then replace the old token in ${where} and run this again.`);
+    }
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || (body.permissions && !body.permissions.push)) {
+        restoreVersion();
+        fail(`The token works but can't publish to ${owner}/${repo} (HTTP ${res.status}).\n` +
+             '  Give it access to the nexus-insights repository with Contents = Read and write.');
+    }
+    console.log('  GitHub token OK.');
+}
+
 console.log(`\n  ${PUBLISH ? 'Releasing' : 'Building'} Nexus Insights ${pkg.version}\n`);
 
 // ---------------------------------------------------------------------------
@@ -162,6 +199,9 @@ if (/\{\s*date:\s*'20\d\d-\d\d-\d\d',\s*tier:/.test(cleaned)) {
 if (/seedLpSnapshot\('flex'/.test(cleaned)) {
     fail('Hardcoded flex LP snapshot still present after stripping. Not building.');
 }
+
+(async () => {
+await checkToken();
 
 let exitCode = 0;
 fs.copyFileSync(SEED_FILE, BACKUP);
@@ -296,3 +336,4 @@ if (PUBLISH) {
     console.log('   no API key, no matches, no LP history.');
     console.log('  =========================================================\n');
 }
+})();
