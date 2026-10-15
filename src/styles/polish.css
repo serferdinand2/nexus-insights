@@ -483,3 +483,13 @@ body {
     border-radius: 4px;
     flex: 0 0 auto;
 }
+
+/* Riot legal notice (moved from the page footer into Settings) */
+.setup-legal {
+    margin: var(--s3) 0 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-tertiary);
+    text-align: center;
+}
+.setup-legal a { color: var(--text-secondary); }

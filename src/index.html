@@ -332,15 +332,6 @@
 
 
             </div>
-
-
-            <!-- Footer -->
-            <footer class="footer">
-                <p class="footer-text">
-                    Powered by <a href="https://developer.riotgames.com/" class="footer-link" target="_blank">Riot Games
-                        API</a>
-                </p>
-            </footer>
         </div>
 
         <!-- Setup Modal (First-time setup / Settings) -->
@@ -446,6 +437,9 @@
                         <code class="setup-datadir-path" id="dataDirPath">…</code>
                         <button type="button" class="setup-datadir-btn" onclick="openDataFolder()">Open folder</button>
                     </div>
+                    <!-- Riot's developer policy asks public apps to carry this notice;
+                         it lives here now instead of a footer on every page. -->
+                    <p class="setup-legal">Nexus Insights isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc. Match data from the <a href="#" onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">Riot Games API</a>.</p>
                 </div>
             </div>
         </div>
