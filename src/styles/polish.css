@@ -443,3 +443,11 @@ body {
 }
 .sync-btn:disabled,
 .sync-btn:disabled:hover { background: #00cfbc; box-shadow: none; }
+
+/* No divider between the summoner/filter row and the stat tabs — just the
+   same 12px gap that separates every other row of controls and cards. */
+.unified-stats-section {
+    margin-top: var(--gutter);
+    padding-top: 0;
+    border-top: 0;
+}
