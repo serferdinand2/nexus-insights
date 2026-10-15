@@ -4666,6 +4666,209 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     cursor: help;
 }
 
+/* ── Match timeline (expanded row) ─────────────────────────────
+   Win chance / gold lead / XP lead over the game, drawn by
+   components/matchTimelineChart.js. Green = the viewed side leads.
+   ──────────────────────────────────────────────────────────── */
+.match-timeline {
+    box-sizing: border-box;
+    margin: 0 0 14px;
+    padding: 12px 14px 10px;
+    border-radius: 10px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+}
+
+.match-timeline:empty {
+    display: none;
+}
+
+.mt-header,
+.mt-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.mt-title {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+}
+
+.mt-viewer {
+    margin-left: 6px;
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--text-tertiary);
+}
+
+.mt-viewer b {
+    color: var(--text-primary);
+}
+
+.mt-metrics,
+.mt-chips {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.mt-metric,
+.mt-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.mt-metric:hover,
+.mt-chip:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: var(--text-primary);
+}
+
+.mt-metric.active {
+    background: rgba(var(--accent-rgb), 0.16);
+    border-color: rgba(var(--accent-rgb), 0.5);
+    color: var(--accent-primary);
+}
+
+.mt-chip {
+    opacity: 0.5;
+}
+
+.mt-chip.active {
+    opacity: 1;
+    border-color: rgba(255, 255, 255, 0.22);
+    color: var(--text-primary);
+}
+
+/* Half green, half red: markers are coloured by side */
+.mt-chip-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(90deg, var(--success) 50%, var(--error) 50%);
+}
+
+.mt-chip--mine .mt-chip-dot {
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+}
+
+.mt-chip--objectives .mt-chip-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 1px;
+    transform: rotate(45deg);
+}
+
+.mt-chip--structures .mt-chip-dot {
+    border-radius: 1px;
+}
+
+.mt-chart {
+    position: relative;
+    margin: 6px 0 4px;
+}
+
+.mt-canvas {
+    display: block;
+    width: 100%;
+    height: 210px;
+}
+
+.mt-tip {
+    position: absolute;
+    top: 24px;
+    left: 0;
+    z-index: 5;
+    min-width: 150px;
+    max-width: 280px;
+    padding: 8px 10px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(12, 14, 20, 0.95);
+    color: var(--text-secondary);
+    font-size: 11px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.1s;
+}
+
+.mt-tip.visible {
+    opacity: 1;
+}
+
+.mt-tip-time {
+    margin-bottom: 4px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.mt-tip-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+}
+
+.mt-tip-row b {
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.mt-tip-row.is-main b {
+    color: var(--accent-primary);
+}
+
+.mt-tip-events {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mt-ev span {
+    display: inline-block;
+    width: 12px;
+}
+
+.mt-ev--my-kill span,
+.mt-ev--ally span {
+    color: var(--success);
+}
+
+.mt-ev--my-death span,
+.mt-ev--enemy span {
+    color: var(--error);
+}
+
+.mt-note,
+.mt-empty {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+/* Players can be clicked to view the timeline from their side */
+.team-table-expanded tbody tr[data-pid] {
+    cursor: pointer;
+}
+
+.team-table-expanded tbody tr.mt-viewing td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
 /* ══════════════════════════════════════════════════════════
    FILTER BAR — inline on the summoner row
    It shapes the analytics cards, Time Analytics and the Match

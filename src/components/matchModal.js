@@ -10,6 +10,7 @@ const { getMatchById }   = require('../services/matchService');
 const { evaluateBadges } = require('./badgeEvaluator');
 const { escapeHtml }     = require('./dom');
 const { computeTeamImpact, IMPACT_AREAS } = require('../services/teamImpact');
+const { renderMatchTimeline } = require('./matchTimelineChart');
 const {
     RUNE_ICONS,
     getChampionIcon,
@@ -79,7 +80,7 @@ function renderPlayerRow(player, gameDuration) {
         </div>`;
 
     return `
-        <tr class="${player.isCurrentPlayer ? 'current-player-row' : ''}">
+        <tr class="${player.isCurrentPlayer ? 'current-player-row' : ''}" data-pid="${player.participantId}">
             <td class="team-player-cell">
                 <img src="${champIcon}" class="team-champion-icon-sm" alt="${escapeHtml(player.championName)}">
                 <span class="team-player-name-sm">${escapeHtml(player.summonerName)}</span>
@@ -162,6 +163,7 @@ function buildTeamData(match) {
                 : '0.00';
 
             const playerData = {
+                participantId,
                 championName: p.championName,
                 summonerName: p.riotIdGameName || p.summonerName || 'Unknown',
                 kills: p.kills, deaths: p.deaths, assists: p.assists,
@@ -228,6 +230,7 @@ function createExpandedRow(match, index, badges = []) {
             <td colspan="100%">
                 <div class="expanded-content-vertical">
                     ${badgesHTML}
+                    <div class="match-timeline"></div>
                     <div class="teams-vertical">
                         <div class="team-section-full ${yourWin ? 'team-win' : 'team-loss'}">
                             <div class="team-header">${yourWin ? 'Victory' : 'Defeat'} - Your Team</div>
@@ -295,6 +298,17 @@ window.toggleRowExpand = async function (index) {
     }
 
     clickedRow.insertAdjacentHTML('afterend', createExpandedRow(fullMatch || match, index, badges));
+
+    // Timeline chart (#3) needs the canvas in the DOM before it can draw
+    const host = clickedRow.nextElementSibling && clickedRow.nextElementSibling.querySelector('.match-timeline');
+    if (host) {
+        try {
+            renderMatchTimeline(host, fullMatch);
+        } catch (err) {
+            console.warn('Match timeline failed:', err);
+            host.remove();
+        }
+    }
 };
 
 module.exports = {};

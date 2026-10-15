@@ -111,7 +111,7 @@ src/
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
 - **Coaching tab**: Solo/Duo only. Rank header, last-game report (‹ › to step back), focus metric with hit/miss dots, area trends with sparklines, collapsed Details. See "Coaching page (rewritten 2026-10)" below.
-- **Expanded Match Rows**: clicking a match-table row expands an inline full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
+- **Expanded Match Rows**: clicking a match-table row expands an inline game timeline chart (win chance / gold lead / XP lead with event markers) and a full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
 
@@ -570,6 +570,30 @@ damage, K+A, gold, vision, id); best winner = MVP, best loser = SVP.
   not indexed yet.
 - Known bias: a player who is the team's only healer gets a 100% healing share
   even for a few hundred HP, which lifts their score a lot.
+
+### Match timeline chart (2026-10, issue #3)
+
+Top of every expanded match row. `services/matchTimeline.js` (pure, tested)
+turns rawJson + timelineJson into per-frame series and events;
+`components/matchTimelineChart.js` draws them on a Canvas.
+
+- Metrics: Win chance, Gold lead, XP lead, from the viewed player's team.
+  Win chance is an estimate: sigmoid((gold + 0.5·XP + 300·kills) / 2500) of
+  the team differences, hand-tuned. Only kills by a player count (executions
+  don't add to the enemy score).
+- Markers in a lane above the plot: circle = kill, diamond = epic monster,
+  square = tower/inhibitor. Green = the viewed side got it, red = the other
+  side; the viewed player's own kills/deaths are larger with a white ring.
+  Toggles: Your kills & deaths, All kills, Objectives, Structures.
+- Click a player in the table below to view the game from their side
+  (`tr[data-pid]`, highlighted with `.mt-viewing`).
+- Metric + toggles persist in localStorage (`nexus.timelinePrefs`).
+- No new data: `toggleRowExpand` already loads the full row with
+  `getMatchById`. Games without a stored timeline show a one-line note.
+- The match table scrolls sideways and an expanded row is as wide as the
+  table, so `fitWidth()` sizes the chart to the table's visible width (on draw
+  and on window resize). `position: sticky` doesn't work there: the expanded
+  content has `overflow: hidden`.
 
 ### Precomputed analytics columns
 
