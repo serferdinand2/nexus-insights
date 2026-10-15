@@ -360,7 +360,8 @@ async function captureLpReadings({ quiet = false } = {}) {
     let moved = false;
     for (const [queue, entry] of [['solo', leagueData.solo], ['flex', leagueData.flex]]) {
         if (!entry) continue;
-        const res = await recordLpReading(queue, entry.tier, entry.rank, entry.leaguePoints);
+        const res = await recordLpReading(queue, entry.tier, entry.rank, entry.leaguePoints,
+                                          { wins: entry.wins, losses: entry.losses });
         if (!res.changed) continue;
         moved = true;
         if (!quiet) {

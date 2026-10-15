@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { compressJson } = require('./compression');
 const { userDataPath } = require('./paths');
+const { absoluteLp, attributeReadings, deltasByMatch } = require('./lpAttribution');
 
 const dbPath = path.join(userDataPath, 'nexus_data.sqlite');
 const db = new sqlite3.Database(dbPath);
@@ -53,6 +54,32 @@ async function runMigrations() {
   // migration from ever running.
   await migrateCompressJson();
   await migrateLpResolution();
+  await migrateLpGameCounts();
+}
+
+/**
+ * Migration 4 — store wins/losses with every LP reading, and redo every link.
+ *
+ * The old attribution blamed a reading on "the latest ranked game in the
+ * previous 3 hours", so a reading taken before its game was synced landed on
+ * the game before it (issue #1). W/L lets attributeReadings() tell how many
+ * games a change covers; recomputing fixes the links already stored.
+ */
+async function migrateLpGameCounts() {
+  const done = await dbGetAsync('SELECT version FROM schema_version WHERE version = 4');
+  if (done) return;
+
+  console.log('Running migration 4: wins/losses on LP readings...');
+  const cols = (await dbAllAsync('PRAGMA table_info(lp_history)')).map(c => c.name);
+  if (!cols.includes('wins'))   await dbRunAsync('ALTER TABLE lp_history ADD COLUMN wins INTEGER');
+  if (!cols.includes('losses')) await dbRunAsync('ALTER TABLE lp_history ADD COLUMN losses INTEGER');
+
+  const { linked } = await attachLpReadingsToMatches();
+  await dbRunAsync(
+    'INSERT INTO schema_version (version, applied_at) VALUES (4, ?)',
+    [Date.now()]
+  );
+  console.log(`Migration 4 complete — ${linked} LP reading link(s) corrected.`);
 }
 
 /**
@@ -290,7 +317,9 @@ function initDatabase() {
         lp INTEGER NOT NULL,
         recorded_date TEXT NOT NULL,
         recorded_at INTEGER NOT NULL,
-        matchId TEXT
+        matchId TEXT,
+        wins INTEGER,
+        losses INTEGER
       )
     `);
     // NOTE: deliberately NOT unique on (queue, recorded_date) any more — that
@@ -449,28 +478,35 @@ function saveLpSnapshot(queue, tier, rank, lp) {
  * one we saw. The background watcher polls every few minutes; without this
  * guard an idle evening would write hundreds of identical rows.
  *
+ * `wins`/`losses` (from League-V4) let attribution count the games a change
+ * covers. A game that moved them but not the LP still counts as a change, so
+ * the next reading isn't mistaken for covering two games.
+ *
  * Resolves to { changed, delta, previous } so the caller can react to a real
  * LP movement (refresh the chart, attribute it to a match) without re-querying.
  */
-function recordLpReading(queue, tier, rank, lp, matchId = null) {
+function recordLpReading(queue, tier, rank, lp, { wins = null, losses = null } = {}) {
   return new Promise((resolve, reject) => {
     db.get(
-      `SELECT id, tier, rank, lp, recorded_at FROM lp_history
+      `SELECT id, tier, rank, lp, recorded_at, wins, losses FROM lp_history
        WHERE queue = ? ORDER BY recorded_at DESC LIMIT 1`,
       [queue],
       (err, prev) => {
         if (err) return reject(err);
 
-        if (prev && prev.tier === tier && prev.rank === rank && prev.lp === lp) {
+        const sameLp = prev && prev.tier === tier && prev.rank === rank && prev.lp === lp;
+        const playedSince = prev && prev.wins != null && wins != null &&
+                            (wins + losses) !== (prev.wins + prev.losses);
+        if (sameLp && !playedSince) {
           return resolve({ changed: false, delta: 0, previous: prev });
         }
 
         const now   = Date.now();
         const today = new Date().toISOString().slice(0, 10);
         db.run(
-          `INSERT INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at, matchId)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [queue, tier, rank, lp, today, now, matchId],
+          `INSERT INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at, wins, losses)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [queue, tier, rank, lp, today, now, wins, losses],
           function (insErr) {
             if (insErr) return reject(insErr);
             const delta = prev
@@ -482,22 +518,6 @@ function recordLpReading(queue, tier, rank, lp, matchId = null) {
       }
     );
   });
-}
-
-/**
- * Collapse tier + division + LP into one continuous number so a delta stays
- * correct across a promotion (Gold I 98 → Platinum IV 8 is +10, not −90).
- */
-const LP_TIERS = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND'];
-const LP_DIVS  = { IV: 0, III: 1, II: 2, I: 3 };
-
-function absoluteLp(tier, rank, lp) {
-  const t = String(tier || '').toUpperCase();
-  const apex = ['MASTER', 'GRANDMASTER', 'CHALLENGER'].indexOf(t);
-  if (apex >= 0) return LP_TIERS.length * 400 + lp;
-  const ti = LP_TIERS.indexOf(t);
-  if (ti < 0) return lp;
-  return ti * 400 + (LP_DIVS[String(rank || 'IV').toUpperCase()] ?? 0) * 100 + lp;
 }
 
 /**
@@ -561,71 +581,56 @@ function getLpReadings(queue) {
 }
 
 /**
- * Link unattributed LP readings to the ranked game that caused them.
+ * Link LP readings to the ranked game that caused them (rules in
+ * lpAttribution.js). Every reading is recomputed on each call, not just the
+ * unlinked ones: a reading can only be placed once its game is synced, and
+ * recomputing also repairs links made by the old 3-hour rule.
  *
- * A reading taken at time T belongs to the most recent ranked match that had
- * already finished by T. The 3-hour window stops a reading taken after a long
- * break from being blamed on a game from yesterday.
+ * Resolves to { linked, considered }: `linked` = links that changed.
  */
-function attachLpReadingsToMatches() {
+async function attachLpReadingsToMatches() {
   const QUEUE_IDS = { solo: 420, flex: 440 };
-  const WINDOW_MS = 3 * 60 * 60 * 1000;
+  let linked = 0;
+  let considered = 0;
 
-  return new Promise((resolve, reject) => {
-    db.all(
-      `SELECT id, queue, recorded_at FROM lp_history
-       WHERE matchId IS NULL AND recorded_at IS NOT NULL`,
-      async (err, rows) => {
-        if (err) return reject(err);
-        let linked = 0;
-        try {
-          for (const row of rows) {
-            const queueId = QUEUE_IDS[row.queue];
-            if (!queueId) continue;
-            const match = await new Promise((res, rej) => {
-              db.get(
-                `SELECT matchId FROM matches
-                 WHERE queueId = ?
-                   AND (gameCreation + gameDuration * 1000) <= ?
-                   AND (gameCreation + gameDuration * 1000) >= ?
-                 ORDER BY gameCreation DESC LIMIT 1`,
-                [queueId, row.recorded_at, row.recorded_at - WINDOW_MS],
-                (e, m) => (e ? rej(e) : res(m))
-              );
-            });
-            if (!match) continue;
-            await new Promise((res, rej) => {
-              db.run(
-                'UPDATE lp_history SET matchId = ? WHERE id = ?',
-                [match.matchId, row.id],
-                e => (e ? rej(e) : res())
-              );
-            });
-            linked++;
-          }
-          resolve({ linked, considered: rows.length });
-        } catch (e) { reject(e); }
-      }
+  for (const [queue, queueId] of Object.entries(QUEUE_IDS)) {
+    const readings = await dbAllAsync(
+      `SELECT id, recorded_at, wins, losses, matchId FROM lp_history
+       WHERE queue = ? AND recorded_at IS NOT NULL
+       ORDER BY recorded_at ASC, id ASC`,
+      [queue]
     );
-  });
+    // A remake doesn't count toward W/L, so it can't be what moved the LP.
+    // 300 s = REMAKE_MAX_SECONDS in matchService.js (not required here: circular)
+    const games = await dbAllAsync(
+      `SELECT matchId, gameCreation + gameDuration * 1000 AS endAt FROM matches
+       WHERE queueId = ?
+         AND COALESCE(isRemake, CASE WHEN gameDuration < 300 THEN 1 ELSE 0 END) = 0
+       ORDER BY endAt ASC`,
+      [queueId]
+    );
+
+    const links = attributeReadings(readings, games);
+    considered += readings.length;
+    for (const r of readings) {
+      const want = links.get(r.id) ?? null;
+      if (want === (r.matchId ?? null)) continue;
+      await dbRunAsync('UPDATE lp_history SET matchId = ? WHERE id = ?', [want, r.id]);
+      linked++;
+    }
+  }
+  return { linked, considered };
 }
 
 /**
  * Per-match LP change: { matchId: delta }. Only covers matches that had a
- * reading taken after them AND a prior reading to measure from, so games
+ * reading credited to them AND a prior reading to measure from, so games
  * played before the watcher existed are simply absent.
  */
 async function getLpDeltasByMatch() {
   const out = {};
   for (const queue of ['solo', 'flex']) {
-    const readings = await getLpReadings(queue);
-    for (let i = 1; i < readings.length; i++) {
-      const cur = readings[i];
-      if (!cur.matchId) continue;
-      const prev = readings[i - 1];
-      out[cur.matchId] = absoluteLp(cur.tier, cur.rank, cur.lp) -
-                         absoluteLp(prev.tier, prev.rank, prev.lp);
-    }
+    Object.assign(out, deltasByMatch(await getLpReadings(queue)));
   }
   return out;
 }
