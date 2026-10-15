@@ -1,19 +1,17 @@
 /**
- * coachingPanel.js — the coaching board.
+ * coachingPanel.js — the Coaching page (rewritten 2026-10).
  *
- * Rewritten 2026-08. The previous version showed 20 goal cards, each with a
- * progress bar, six statistics, an insight paragraph and an action paragraph:
- * 78 numbers presented as equally urgent. Twenty priorities is zero priorities.
+ * Organised around "am I improving, game to game?", Solo/Duo only:
  *
- * The structure now mirrors how someone can actually use this:
+ *   1. Rank header     rank + LP and W-L over the last 10 games
+ *   2. Last game       one game vs. your previous 20, with ‹ › to step back
+ *   3. Your focus      the one habit coachingEngine picks, hit/missed per game
+ *   4. Trends          each Analytics area, last 10 vs. the 10 before
+ *   5. Details         tilt, other habits, outcome evidence (collapsed)
  *
- *   FOCUS      one thing, chosen by how much win rate is associated with it,
- *              expressed as a single rule you can hold in your head mid-game
- *   WATCH      up to three metrics, one line each, no prose
- *   REFERENCE  outcomes as evidence, in a collapsed table, never as tasks
- *
- * The ranking, the causes-vs-symptoms split and the statistical caveats all
- * live in coachingEngine.js; this file only renders what it returns.
+ * Data: the same rows the Analytics page uses (window.matchesData, remakes
+ * excluded), and every number comes from the Analytics engine via
+ * coachingProgress.js — so this page can never disagree with the cards.
  *
  * Exposes: window.renderCoachingPanel()
  */
@@ -21,33 +19,28 @@
 (function () {
     'use strict';
 
-    const { getCoachingData } = require('../services/matchService');
+    const { getLpReadings } = require('../services/matchService');
     const { loadConfig, saveConfig } = require('../services/config');
-    const Engine = require('./coachingEngine');
+    const Engine   = require('./coachingEngine');
+    const Progress = require('./coachingProgress');
     const { escapeHtml } = require('./dom');
-
-    const SEASON_START = new Date('2026-01-01T00:00:00Z').getTime();
 
     const fmt = (v, dp = 1) => (v === null || v === undefined || Number.isNaN(v))
         ? '—' : Number(v).toFixed(dp);
     const pct = v => (v === null || v === undefined || Number.isNaN(v)) ? '—' : Math.round(v) + '%';
     const signed = v => (v > 0 ? '+' : '') + Math.round(v);
+    const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1).toLowerCase() : '';
 
-    // ── Focus persistence ────────────────────────────────────────────────────
-    // Storing the chosen metric with the date it was set is what lets the board
-    // show whether the advice worked. Without it this is advice, not coaching.
-    function loadFocus() {
-        return loadConfig().coachingFocus || null;
-    }
+    // Page state survives re-renders so ‹ › and "Details" don't reset.
+    const state = { games: [], index: null, lastCount: 0, detailsOpen: false };
 
-    function saveFocus(metricId) {
+    // ── Focus persistence (unchanged) ────────────────────────────────────────
+    function loadFocus() { return loadConfig().coachingFocus || null; }
+
+    window.coachingSetFocus = function (metricId) {
         const cfg = loadConfig();
         cfg.coachingFocus = { id: metricId, since: Date.now() };
         saveConfig(cfg);
-    }
-
-    window.coachingSetFocus = function (metricId) {
-        saveFocus(metricId);
         window.renderCoachingPanel();
     };
 
@@ -58,68 +51,194 @@
         window.renderCoachingPanel();
     };
 
-    window.coachingToggleReference = function () {
-        const el  = document.getElementById('coaching-reference-body');
-        const btn = document.getElementById('coaching-reference-toggle');
-        if (!el) return;
-        const hidden = el.classList.toggle('collapsed');
-        if (btn) btn.textContent = hidden ? 'Show' : 'Hide';
+    window.coachingToggleDetails = function () {
+        state.detailsOpen = !state.detailsOpen;
+        const el  = document.getElementById('coachDetailsBody');
+        const btn = document.getElementById('coachDetailsToggle');
+        if (el)  el.classList.toggle('collapsed', !state.detailsOpen);
+        if (btn) btn.textContent = state.detailsOpen ? 'Hide' : 'Show';
     };
 
-    // ── Renderers ────────────────────────────────────────────────────────────
+    window.coachingStep = function (delta) {
+        if (!state.games.length) return;
+        state.index = Math.max(0, Math.min(state.games.length - 1, state.index + delta));
+        const el = document.getElementById('coachReport');
+        if (el) el.outerHTML = renderReport();
+    };
 
-    function renderFocus(focus, progress, roleLabel) {
+    window.coachingOpenArea = function (tab) {
+        if (typeof window.switchTopTab === 'function') window.switchTopTab('analytics');
+        const btn = document.querySelector(`.analytical-tab[data-tab="${CSS.escape(tab)}"]`);
+        if (btn) btn.click();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function timeAgo(t) {
+        const s = (Date.now() - t) / 1000;
+        if (s < 3600)   return `${Math.max(1, Math.round(s / 60))} min ago`;
+        if (s < 86400)  return `${Math.round(s / 3600)} h ago`;
+        const d = Math.round(s / 86400);
+        if (d < 30)     return `${d} day${d === 1 ? '' : 's'} ago`;
+        return new Date(t).toLocaleDateString();
+    }
+
+    function lpText(v) {
+        if (v === null || v === undefined || Number.isNaN(Number(v))) return '';
+        return `${v > 0 ? '+' : ''}${Math.round(v)} LP`;
+    }
+
+    function sparkline(values) {
+        const pts = values.map((v, i) => [i, v]).filter(p => p[1] !== null);
+        if (pts.length < 2) return '<div class="coach-spark coach-spark--empty"></div>';
+        const W = 160, H = 36, P = 3;
+        const ys = pts.map(p => p[1]);
+        let lo = Math.min(...ys), hi = Math.max(...ys);
+        if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+        const x = i => P + (i / (values.length - 1)) * (W - 2 * P);
+        const y = v => H - P - ((v - lo) / (hi - lo)) * (H - 2 * P);
+        const d = pts.map((p, k) => `${k ? 'L' : 'M'}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join(' ');
+        // Neutral colour on purpose: the line covers ~30 games while the
+        // Improving/Slipping label compares 10 vs 10. Two judgements that can
+        // disagree just confuse — the label is the verdict, the line is shape.
+        const last = pts[pts.length - 1][1];
+        const [lx, ly] = [x(pts[pts.length - 1][0]), y(last)];
+        return `<svg class="coach-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="${d}"/><circle cx="${lx.toFixed(1)}" cy="${ly.toFixed(1)}" r="2.6"/></svg>`;
+    }
+
+    // ── 1. Rank header ───────────────────────────────────────────────────────
+    function renderHeader(games, reading, roleLabel) {
+        const h = Progress.rankHeader(games, window.lpDeltas || {});
+        const tier = reading && reading.tier ? String(reading.tier).toLowerCase() : null;
+        const rankLine = reading
+            ? `${cap(reading.tier)} ${['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(String(reading.tier).toUpperCase()) ? '' : escapeHtml(reading.rank || '')} · ${reading.lp} LP`
+            : 'Solo/Duo';
+        const lp = h.lpChange !== null
+            ? `<span class="${h.lpChange >= 0 ? 'good' : 'bad'}">${lpText(h.lpChange)}</span>${h.lpTracked < h.games ? ` <span class="coach-dim">(LP known for ${h.lpTracked})</span>` : ''}`
+            : '';
+
+        return `
+        <div class="coach-rank">
+          ${tier ? `<img class="coach-rank-emblem" src="assets/ranks/emblem-${escapeHtml(tier)}.png" alt="">` : ''}
+          <div class="coach-rank-info">
+            <div class="coach-rank-label">Ranked Solo/Duo · ${escapeHtml(roleLabel)}</div>
+            <div class="coach-rank-title">${rankLine}</div>
+            <div class="coach-rank-sub">Last ${h.games} games:
+              <b class="good">${h.wins}W</b> <b class="bad">${h.losses}L</b>${lp ? ' · ' + lp : ''}
+              <span class="coach-dim">· ${games.length} games this season</span></div>
+          </div>
+          <button class="coach-btn" onclick="window.renderCoachingPanel()">Refresh</button>
+        </div>`;
+    }
+
+    // ── 2. Last-game report ──────────────────────────────────────────────────
+    function renderReport() {
+        const r = Progress.lastGameReport(state.games, state.index, window.computeTabStats);
+        if (!r) return '<div id="coachReport"></div>';
+        const g = r.game;
+        const lp = lpText((window.lpDeltas || {})[g.matchId]);
+        const role = Engine.ROLE_LABEL[g.teamPosition] || '';
+        const isLatest = r.index === r.total - 1;
+
+        const tiles = r.stats.map(s => {
+            const arrow = s.verdict === 'better' ? '▲' : s.verdict === 'worse' ? '▼' : s.verdict === 'same' ? '=' : '';
+            const word  = s.verdict === 'better' ? 'better' : s.verdict === 'worse' ? 'worse' : s.verdict === 'same' ? 'as usual' : '';
+            return `
+            <div class="coach-tile ${s.verdict || ''}">
+              <div class="coach-tile-label">${escapeHtml(s.label)}</div>
+              <div class="coach-tile-value">${escapeHtml(String(s.display))}</div>
+              ${s.color ? `<span class="coach-tile-tier" style="background:${escapeHtml(s.color)}" title="The rank this value would match on average">${escapeHtml(cap(s.tier))}</span>` : '<span class="coach-tile-tier coach-tile-tier--none"></span>'}
+              <div class="coach-tile-foot">
+                <span class="coach-tile-verdict">${arrow} ${word}</span>
+                <span class="coach-dim">usual ${escapeHtml(String(s.baselineDisplay))}</span>
+              </div>
+            </div>`;
+        }).join('');
+
+        const summary = r.baselineCount < 5
+            ? `<span class="coach-dim">Not enough earlier games to compare with yet.</span>`
+            : `<b class="good">${r.better} better</b> than usual · <b class="bad">${r.worse} worse</b> · ${r.same} about the same
+               <span class="coach-dim">— compared with your ${r.baselineCount} games before it</span>`;
+
+        return `
+        <div class="coach-report" id="coachReport">
+          <div class="coach-report-head">
+            <button class="coach-step" onclick="coachingStep(-1)" ${r.index === 0 ? 'disabled' : ''} title="Earlier game" aria-label="Earlier game">‹</button>
+            <div class="coach-report-title">
+              <div><b>${escapeHtml(g.championName || '')}</b>${role ? ' · ' + escapeHtml(role) : ''}
+                · <b class="${g.win ? 'good' : 'bad'}">${g.win ? 'Win' : 'Loss'}</b>
+                · ${(g.kills ?? 0)} / ${(g.deaths ?? 0)} / ${(g.assists ?? 0)} <span class="coach-dim">KDA</span>
+                ${lp ? ` · <span class="${lp.startsWith('+') ? 'good' : 'bad'}">${lp}</span>` : ''}</div>
+              <div class="coach-dim">${isLatest ? 'Your last game' : `Game ${r.index + 1} of ${r.total}`} · ${timeAgo(g.gameCreation)}</div>
+            </div>
+            <button class="coach-step" onclick="coachingStep(1)" ${isLatest ? 'disabled' : ''} title="Later game" aria-label="Later game">›</button>
+          </div>
+          <div class="coach-report-summary">${summary}</div>
+          <div class="coach-tiles">${tiles}</div>
+        </div>`;
+    }
+
+    // ── 3. Focus ─────────────────────────────────────────────────────────────
+    function renderFocus(focus, progress, role, roleLabel) {
         if (!focus) {
             return `<div class="coach-empty">Not enough ranked games yet to pick a focus.</div>`;
         }
-
+        const hits = Progress.focusHits(state.games, Engine, focus.id, role);
         const dp = focus.decimals;
-        const current = focus.binary
-            ? pct(focus.failureRate) + ' of games'
-            : `${fmt(focus.current, dp)} ${escapeHtml(focus.unit || '')}`;
 
-        const targetText = focus.binary
-            ? ''
-            : `&middot; ${escapeHtml(roleLabel)} target ${fmt(focus.target, dp)}`;
+        const dots = hits ? hits.dots.map(d => {
+            const cls = d.met === null ? 'na' : d.met ? 'hit' : 'miss';
+            const val = d.value === null || d.value === undefined ? '—' : fmt(d.value, dp);
+            const tip = `${d.champion} · ${d.win ? 'Win' : 'Loss'} · ${val} ${focus.unit || ''} · ${d.met === null ? 'not measured' : d.met ? 'target hit' : 'target missed'}`;
+            return `<span class="coach-dot ${cls}" title="${escapeHtml(tip)}"></span>`;
+        }).join('') : '';
 
-        // The headline is deliberately hedged: this is an association measured
-        // on the player's own games, not a promised gain.
-        // Hedged deliberately: this is the difference between the player's
-        // current blended win rate and the rate of their good games. It is an
-        // association, not a promise, and the tooltip says so.
-        const headline = focus.gap > 0
-            ? `<div class="coach-focus-gain" title="If every game went like the ${pct(100 - focus.failureRate)} where you manage this, your win rate would be about ${pct(focus.wrMet)} instead of ${pct(focus.wrMet - focus.recoverable)}. An association measured on your own games, not a guaranteed gain.">
-                 <div class="coach-focus-gain-value">${signed(focus.recoverable)}%</div>
-                 <div class="coach-focus-gain-label">if every game went like your good ones</div>
-               </div>`
-            : '';
+        let hitLine = '';
+        if (hits && hits.recent) {
+            const now = `Hit in <b>${hits.recent.hit} of your last ${hits.recent.of}</b> games`;
+            let cmp = '';
+            if (hits.before) {
+                const a = hits.recent.hit / hits.recent.of, b = hits.before.hit / hits.before.of;
+                const cls = a > b ? 'good' : a < b ? 'bad' : '';
+                const arrow = a > b ? '▲' : a < b ? '▼' : '=';
+                cmp = ` <span class="${cls}">${arrow} was ${hits.before.hit} of ${hits.before.of} before</span>`;
+            }
+            hitLine = now + cmp;
+        }
 
-        const confidence = focus.confident
-            ? ''
-            : `<div class="coach-caveat">Based on ${focus.sampleSize} games
-                 (${focus.metGames} vs ${focus.failedGames}) — the gap is within the
-                 margin of error, so treat this as a hint rather than a finding.</div>`;
+        const target = focus.binary ? '' : `${escapeHtml(roleLabel)} target: ${fmt(hits ? hits.target : focus.target, dp)} ${escapeHtml(focus.unit || '')}`;
 
-        // Naming both group sizes matters. "You win 71% of games that hit this
-        // and 43% of games that don't" reads as though the two should sum to
-        // 100 — they are separate groups, each with its own win rate.
         const metShare = 100 - focus.failureRate;
         const evidence = (focus.wrMet !== null && focus.wrMissed !== null)
-            ? `In the <b>${pct(metShare)}</b> of games where you managed this, you won
-               <b class="good">${pct(focus.wrMet)}</b>.
-               In the other <b>${pct(focus.failureRate)}</b>, you won
-               <b class="bad">${pct(focus.wrMissed)}</b>.
-               <span class="coach-dim">(Two separate groups &mdash; each out of its own games.)</span>`
+            ? `<b>Why this one?</b> You managed it in ${pct(metShare)} of your ${focus.sampleSize} games and won
+               <b class="good">${pct(focus.wrMet)}</b> of those. In the other ${pct(focus.failureRate)} you won only
+               <b class="bad">${pct(focus.wrMissed)}</b>.${focus.confident ? '' : ' <span class="coach-dim">The gap is small for the number of games, so treat it as a hint.</span>'}`
             : '';
+
+        let since = '';
+        if (progress && !progress.tooEarly) {
+            const better = progress.improving;
+            const move = focus.binary
+                ? `${pct(progress.before * 100)} → ${pct(progress.after * 100)}`
+                : `${fmt(progress.before, dp)} → ${fmt(progress.after, dp)}`;
+            since = `<div class="coach-since">Since you committed on ${new Date(progress.since).toLocaleDateString()}:
+                       <b class="${better ? 'good' : 'bad'}">${move}</b> over ${progress.games} games</div>`;
+        } else if (progress && progress.tooEarly) {
+            since = `<div class="coach-since coach-dim">Committed ${new Date(progress.since).toLocaleDateString()} —
+                       ${progress.games} game${progress.games === 1 ? '' : 's'} so far.</div>`;
+        }
 
         return `
         <div class="coach-focus">
           <div class="coach-focus-top">
             <div>
               <div class="coach-focus-title">${escapeHtml(focus.label)}</div>
-              <div class="coach-focus-sub">${current} ${targetText}</div>
+              <div class="coach-focus-sub">${target}</div>
             </div>
-            ${headline}
+            ${focus.pinned
+                ? `<button class="coach-btn" onclick="coachingClearFocus()">Let the app choose</button>`
+                : `<button class="coach-btn" onclick="coachingSetFocus('${escapeHtml(focus.id)}')">Commit to this</button>`}
           </div>
 
           <div class="coach-rule">
@@ -127,137 +246,106 @@
             <div class="coach-rule-text">${escapeHtml(focus.rule || '')}</div>
           </div>
 
+          <div class="coach-dots-row">
+            <div class="coach-dots" aria-label="Last 10 games, oldest to newest">${dots}</div>
+            <div class="coach-dots-text">${hitLine}</div>
+          </div>
+          <div class="coach-dots-legend coach-dim">Last 10 games, oldest → newest ·
+            <span class="coach-dot hit"></span> hit <span class="coach-dot miss"></span> missed</div>
+          ${since}
           <p class="coach-evidence">${evidence}</p>
-          ${confidence}
-          ${renderProgress(progress, focus)}
-
-          <div class="coach-focus-actions">
-            ${focus.pinned
-                ? `<button class="coach-btn" onclick="coachingClearFocus()">Let the app choose</button>`
-                : `<button class="coach-btn" onclick="coachingSetFocus('${focus.id}')">Commit to this</button>`}
-          </div>
         </div>`;
     }
 
-    function renderProgress(progress, focus) {
-        if (!progress) return '';
-        const since = new Date(progress.since).toLocaleDateString();
+    // ── 4. Trends ────────────────────────────────────────────────────────────
+    function renderTrends(areas) {
+        if (!areas.length) return `<div class="coach-empty">Play at least 10 Solo/Duo games to see trends.</div>`;
+        const VERDICT = { improving: 'Improving', steady: 'Steady', slipping: 'Slipping' };
+        return `<div class="coach-areas">${areas.map(a => `
+            <button type="button" class="coach-area" onclick="coachingOpenArea('${escapeHtml(a.tab)}')"
+                    title="Open ${escapeHtml(a.tab)} on the Analytics page">
+              <div class="coach-area-head">
+                <span class="coach-area-name">${escapeHtml(a.tab)}</span>
+                <span class="coach-verdict ${a.verdict}">${VERDICT[a.verdict]}</span>
+              </div>
+              ${a.lead ? `
+              <div class="coach-area-lead">
+                <span class="coach-dim">${escapeHtml(a.lead.label)}</span>
+                <b${a.lead.color ? ` style="color:${escapeHtml(a.lead.color)}"` : ''}>${escapeHtml(String(a.lead.display))}</b>
+              </div>` : ''}
+              ${sparkline(a.spark)}
+              <div class="coach-spark-caption coach-dim">10-game average over your last ${a.spark.length + 9} games</div>
+              <div class="coach-area-list">${a.highlights.map(h => `
+                <div class="coach-area-row">
+                  <span>${escapeHtml(h.label)}</span>
+                  <span class="${h.improving ? 'good' : 'bad'}">${escapeHtml(String(h.before))} → ${escapeHtml(String(h.now))} ${h.improving ? '▲' : '▼'}</span>
+                </div>`).join('')}
+              </div>
+              <div class="coach-area-count coach-dim">${a.improving} of ${a.total} stats better · ${a.slipping} worse</div>
+            </button>`).join('')}
+          </div>`;
+    }
 
-        if (progress.tooEarly) {
-            return `<div class="coach-progress-note">Tracking since ${since} —
-                ${progress.games} game${progress.games === 1 ? '' : 's'} so far,
-                too few to show movement yet.</div>`;
+    // ── 5. Details ───────────────────────────────────────────────────────────
+    function renderTilt(tilt) {
+        if (!tilt) return '';
+        if (!tilt.degraded) {
+            return `<div class="coach-note">
+              After two losses in a row you play <b>${tilt.games}</b> more games
+              (${pct(tilt.share)} of your total), and your habits hold up — early and
+              solo deaths stay flat. That looks like normal ups and downs rather than tilt.</div>`;
         }
-
-        const dp    = focus.decimals;
-        const dir   = progress.improving ? 'good' : 'bad';
-        const arrow = progress.improving ? '&darr;' : '&uarr;';
-        const move  = focus.binary
-            ? `${pct(progress.before * 100)} &rarr; ${pct(progress.after * 100)}`
-            : `${fmt(progress.before, dp)} &rarr; ${fmt(progress.after, dp)}`;
-
-        return `
-        <div class="coach-progress-grid">
-          <div class="coach-progress-cell">
-            <div class="coach-progress-label">Since ${since}</div>
-            <div class="coach-progress-value ${dir}">${arrow} ${move}</div>
-          </div>
-          <div class="coach-progress-cell">
-            <div class="coach-progress-label">Games since</div>
-            <div class="coach-progress-value">${progress.games} &middot; ${pct(progress.winRateSince)} WR</div>
-          </div>
-        </div>`;
+        const bits = [];
+        if (tilt.earlyDeaths && tilt.earlyDeaths.delta > 0.15) bits.push(`early deaths ${fmt(tilt.earlyDeaths.normal)} → <b class="bad">${fmt(tilt.earlyDeaths.tilted)}</b>`);
+        if (tilt.isolatedDeaths && tilt.isolatedDeaths.delta > 0.15) bits.push(`dying alone ${fmt(tilt.isolatedDeaths.normal)} → <b class="bad">${fmt(tilt.isolatedDeaths.tilted)}</b>`);
+        if (tilt.csAt10 && tilt.csAt10.delta < -3) bits.push(`CS@10 ${fmt(tilt.csAt10.normal, 0)} → <b class="bad">${fmt(tilt.csAt10.tilted, 0)}</b>`);
+        return `<div class="coach-note warn">
+          <b>You play worse after two losses in a row.</b> Across ${tilt.games} such games:
+          ${bits.join(', ')}. That's a change in how you play, not just in results —
+          the best reason to stop after two.</div>`;
     }
 
-    function renderWatch(watch) {
+    function renderOtherHabits(watch) {
         if (!watch || !watch.length) return '';
-
         const rows = watch.map(w => {
-            const dp = w.decimals;
-            const value = w.binary
-                ? pct(w.failureRate) + ' of games'
-                : `${fmt(w.current, dp)} ${escapeHtml(w.unit || '')}`;
-
-            let note = '', cls = 'muted';
-            if (w.trend && w.trend.improving !== null) {
-                cls  = w.trend.improving ? 'good' : 'bad';
-                // Binary metrics are rates: printing them at 0 decimals would
-                // show a real change as "0 -> 0".
-                const from = w.binary ? pct(w.trend.before * 100) : fmt(w.trend.before, dp);
-                note = `${w.trend.improving ? '&darr;' : '&uarr;'} from ${from}`;
-            } else if (w.trend && w.trend.flat) {
-                note = 'steady';
-            } else if (w.gap > 0) {
-                note = signed(w.recoverable) + '%';
-            }
-
+            const value = w.binary ? pct(w.failureRate) + ' of games' : `${fmt(w.current, w.decimals)} ${escapeHtml(w.unit || '')}`;
+            let note = '', cls = 'coach-dim';
+            if (w.trend && w.trend.improving !== null && w.trend.improving !== undefined) {
+                cls = w.trend.improving ? 'good' : 'bad';
+                note = w.trend.improving ? '▲ getting better' : '▼ getting worse';
+            } else if (w.trend && w.trend.flat) note = 'steady';
             return `
             <div class="coach-watch-row" title="${escapeHtml(w.rule || '')}">
               <span class="coach-watch-label">${escapeHtml(w.label)}</span>
               <span class="coach-watch-value">${value}</span>
               <span class="coach-watch-note ${cls}">${note}</span>
-              <button class="coach-mini-btn" onclick="coachingSetFocus('${w.id}')">Focus</button>
+              <button class="coach-mini-btn" onclick="coachingSetFocus('${escapeHtml(w.id)}')">Focus on this</button>
             </div>`;
         }).join('');
-
-        return `<div class="coach-section-label">Watching</div>
-                <div class="coach-watch">${rows}</div>`;
+        return `<div class="coach-subhead">Other habits worth watching</div><div class="coach-watch">${rows}</div>`;
     }
 
-    function renderTilt(tilt) {
-        if (!tilt) return '';
-
-        // Deliberately phrased around behaviour, not results. Win rate after two
-        // losses is circular — a losing run contains losses by definition —
-        // whereas early deaths going up is evidence about how you played.
-        if (!tilt.degraded) {
-            return `<div class="coach-note">
-              After two losses you play <b>${tilt.games}</b> more games
-              (${pct(tilt.share)} of your total), but your in-game habits hold up:
-              early and isolated deaths stay flat. That looks like variance
-              rather than tilt.</div>`;
-        }
-
-        const bits = [];
-        if (tilt.earlyDeaths && tilt.earlyDeaths.delta > 0.15) {
-            bits.push(`early deaths ${fmt(tilt.earlyDeaths.normal)} &rarr; <b class="bad">${fmt(tilt.earlyDeaths.tilted)}</b>`);
-        }
-        if (tilt.isolatedDeaths && tilt.isolatedDeaths.delta > 0.15) {
-            bits.push(`dying alone ${fmt(tilt.isolatedDeaths.normal)} &rarr; <b class="bad">${fmt(tilt.isolatedDeaths.tilted)}</b>`);
-        }
-        if (tilt.csAt10 && tilt.csAt10.delta < -3) {
-            bits.push(`CS@10 ${fmt(tilt.csAt10.normal, 0)} &rarr; <b class="bad">${fmt(tilt.csAt10.tilted, 0)}</b>`);
-        }
-
-        return `<div class="coach-note warn">
-          <b>You play worse after two losses.</b> Across ${tilt.games} such games:
-          ${bits.join(', ')}. That is a change in how you play, not just in results —
-          the strongest case for stopping at two.</div>`;
-    }
-
-    function renderReference(reference, sampleSize) {
+    function renderEvidence(reference, n) {
         if (!reference || !reference.length) return '';
-
         const rows = reference.map(r => `
-            <tr>
-              <td>${escapeHtml(r.label)}</td>
-              <td class="num">${fmt(r.current, r.decimals)}${escapeHtml(r.unit || '')}</td>
-            </tr>`).join('');
+            <tr><td>${escapeHtml(r.label)}</td>
+                <td class="num">${fmt(r.current, r.decimals)}${escapeHtml(r.unit || '')}</td></tr>`).join('');
+        return `
+          <div class="coach-subhead">Results <span class="coach-dim">— these follow from winning rather than cause it, so they aren't goals</span></div>
+          <table class="coach-table">${rows}</table>
+          <p class="coach-dim">Averages over your ${n} Solo/Duo games this season.</p>`;
+    }
 
+    function renderDetails(result) {
         return `
         <div class="coach-section-label coach-reference-head">
-          <span>Evidence <span class="coach-dim">— outcomes, not tasks</span></span>
-          <button class="coach-mini-btn" id="coaching-reference-toggle"
-                  onclick="coachingToggleReference()">Show</button>
+          <span>Details</span>
+          <button class="coach-mini-btn" id="coachDetailsToggle" onclick="coachingToggleDetails()">${state.detailsOpen ? 'Hide' : 'Show'}</button>
         </div>
-        <div class="coach-reference collapsed" id="coaching-reference-body">
-          <p class="coach-dim coach-reference-why">
-            These follow from winning rather than causing it — you take Baron
-            because you are ahead. Useful as evidence, useless as instructions,
-            so they are not ranked as things to fix.
-          </p>
-          <table class="coach-table">${rows}</table>
-          <p class="coach-dim">Averages over ${sampleSize} ranked Solo/Duo games this season.</p>
+        <div class="coach-details ${state.detailsOpen ? '' : 'collapsed'}" id="coachDetailsBody">
+          ${renderTilt(result.tilt)}
+          ${renderOtherHabits(result.watch)}
+          ${renderEvidence(result.reference, result.sampleSize)}
         </div>`;
     }
 
@@ -265,51 +353,63 @@
     window.renderCoachingPanel = async function () {
         const container = document.getElementById('coaching-panel-content');
         if (!container) return;
-        window.coachingPanelLoaded = true;
 
-        container.innerHTML = `
-            <div class="coaching-loading">
-              <div class="coaching-spinner"></div>
-              <p>Analysing your Solo/Duo ranked games…</p>
-            </div>`;
+        if (!state.games.length) {
+            container.innerHTML = `
+                <div class="coaching-loading">
+                  <div class="coaching-spinner"></div>
+                  <p>Analysing your Solo/Duo games…</p>
+                </div>`;
+        }
 
         try {
-            // timelineSample 0: the board no longer needs first-drake timings,
-            // so no timelines are decompressed at all.
-            const { rows } = await getCoachingData(SEASON_START, 0);
-
-            if (!rows || rows.length === 0) {
-                container.innerHTML = `<div class="coach-empty">
-                    No Solo/Duo ranked games found for this season.</div>`;
+            const isRemake = typeof window.isRemake === 'function' ? window.isRemake : undefined;
+            const games = Progress.soloGames(window.matchesData || [], isRemake);
+            if (!games.length) {
+                state.games = [];
+                container.innerHTML = `<div class="coach-empty">No Solo/Duo games yet — sync your matches, then come back.</div>`;
                 return;
             }
 
+            // Rows not yet backfilled need their match JSON for some tabs
+            if (typeof window.prefetchTabJson === 'function') {
+                for (const tab of Progress.tabsNeeded()) {
+                    try { await window.prefetchTabJson(tab, games); } catch (e) { console.warn('[Coaching] prefetch', tab, e); }
+                }
+            }
+
+            // New games since last time → jump back to the latest
+            if (state.index === null || games.length !== state.lastCount) state.index = games.length - 1;
+            state.games = games;
+            state.lastCount = games.length;
+
             const pref = loadFocus();
-            const result = Engine.analyse(rows, {
+            const result = Engine.analyse(games, {
                 focusId:    pref ? pref.id : null,
                 focusSince: pref ? pref.since : null,
             });
 
+            let reading = null;
+            try {
+                const readings = await getLpReadings('solo');
+                reading = readings && readings.length ? readings[readings.length - 1] : null;
+            } catch { /* LP history is optional */ }
+
+            const areas = Progress.areaTrends(games, window.computeTabStats);
+
             container.innerHTML = `
-            <div class="coach-header">
-              <div>
-                <h2>Coaching</h2>
-                <p>${result.sampleSize} ranked games &middot; ${escapeHtml(result.roleLabel)}
-                   ${result.roleShare < 0.6
-                     ? `<span class="coach-dim">(only ${pct(result.roleShare * 100)} of games — benchmarks approximate)</span>`
-                     : ''}</p>
-              </div>
-              <button class="coach-btn" onclick="window.renderCoachingPanel()">Refresh</button>
-            </div>
+              ${renderHeader(games, reading, result.roleLabel)}
 
-            <div class="coach-section-label">This week's focus
-              <span class="coach-dim">— one thing</span></div>
-            ${renderFocus(result.focus, result.progress, result.roleLabel)}
-            ${renderTilt(result.tilt)}
-            ${renderWatch(result.watch)}
-            ${renderReference(result.reference, result.sampleSize)}
-            `;
+              <div class="coach-section-label">Game by game</div>
+              ${renderReport()}
 
+              <div class="coach-section-label">Your focus <span class="coach-dim">— one habit at a time</span></div>
+              ${renderFocus(result.focus, result.progress, result.role, result.roleLabel)}
+
+              <div class="coach-section-label">Trends <span class="coach-dim">— your last 10 games vs. the 10 before · click one to open it in Analytics</span></div>
+              ${renderTrends(areas)}
+
+              ${renderDetails(result)}`;
         } catch (err) {
             container.innerHTML = `<div class="coach-empty error">Error: ${escapeHtml(err.message)}</div>`;
             console.error('[CoachingPanel]', err);

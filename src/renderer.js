@@ -944,8 +944,9 @@ window.switchTopTab = function (tab) {
     // of the way so the page it just revealed is actually visible.
     window.closeNavDrawer();
 
-    // Lazy-load the coaching panel on first open
-    if (tab === 'coaching' && !coachingPanelLoaded) {
+    // Re-render on every open: it is cheap (~50 ms) and picks up games
+    // synced since the last visit.
+    if (tab === 'coaching') {
         coachingPanelLoaded = true;
         if (typeof window.renderCoachingPanel === 'function') {
             window.renderCoachingPanel();

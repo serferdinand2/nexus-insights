@@ -565,3 +565,25 @@ sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
 - `saveSetup` now merges into the existing config (it used to replace it and
   wipe skin/coaching keys).
 - Page footer removed; Riot's legal notice lives in the Settings dialog.
+
+### Coaching page (rewritten 2026-10)
+
+Solo/Duo only, organised around "am I improving game to game?". Uses
+`window.matchesData` (remakes excluded) — **not** its own DB query any more —
+and re-renders on every open.
+
+- `components/coachingProgress.js` (pure, tested): `rankHeader` (W-L + LP over
+  last 10 via `window.lpDeltas`), `lastGameReport` (one game vs the 20 before
+  it, ‹ › steps back), `focusHits` (focus metric hit/missed per game, last 10 vs
+  the 10 before), `areaTrends` (each Analytics area last 10 vs prev 10 +
+  rolling-10 sparkline of a lead stat).
+- Every value comes from `computeTabStats` — for the report it's run over a
+  one-game list — so Coaching can't disagree with the Analytics cards.
+- `coachingEngine.js` still picks the focus (input vs outcome split,
+  recoverable win rate); its tilt / watch / outcome evidence moved under a
+  collapsed "Details".
+- Rank in the header = latest `lp_history` reading for 'solo' (no API call).
+- **Known data bug:** `objectiveRate` is 100 for practically every stored game,
+  so it's left out of the report and Objectives' sparkline follows `obj_tower`.
+  The Analytics "Objective Rate" card and the engine's `objectiveRate` metric
+  are affected too.
