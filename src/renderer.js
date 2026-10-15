@@ -28,6 +28,7 @@ window.require('./components/filtersPanel'); // registers applyFilters, toggleAl
 window.require('./components/coachingPanel'); // registers renderCoachingPanel
 window.require('./components/windowControls'); // registers initWindowControls
 window.require('./components/updateButton');   // registers initUpdateButton (titlebar ⟳)
+window.require('./components/skinsPanel');     // registers applySavedSkin, openSkinsPanel
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
 
 // Destructure named exports needed inside renderer.js itself
@@ -195,7 +196,10 @@ window.saveSetup = function () {
         return;
     }
 
-    if (saveConfig({ apiKey, gameName, tagLine, region, platform, closeToTray, startOnLogin, autoLogGames })) {
+    // Merge, don't replace: config.json also holds the skin, custom background
+    // and coaching state, which this dialog doesn't show. Replacing the whole
+    // object used to silently wipe them on every Settings save.
+    if (saveConfig({ ...loadConfig(), apiKey, gameName, tagLine, region, platform, closeToTray, startOnLogin, autoLogGames })) {
         // The login-item registration lives in the OS, so only the main
         // process can apply it — tell it the new values took effect.
         try {
@@ -922,6 +926,7 @@ const TOP_TABS = {
     history:   { panel: 'history-tab',   nav: 'navHistory'   },
     coaching:  { panel: 'coaching-tab',  nav: 'navCoaching'  },
     chat:      { panel: 'chat-tab',      nav: 'navChat'      },
+    skins:     { panel: 'skins-tab',     nav: 'navSkins'     },
 };
 
 window.switchTopTab = function (tab) {
@@ -945,6 +950,10 @@ window.switchTopTab = function (tab) {
         if (typeof window.renderCoachingPanel === 'function') {
             window.renderCoachingPanel();
         }
+    }
+
+    if (tab === 'skins' && typeof window.openSkinsPanel === 'function') {
+        window.openSkinsPanel();
     }
 
     if (tab === 'chat' && typeof window.openChatPanel === 'function') {
@@ -1001,20 +1010,9 @@ document.addEventListener('DOMContentLoaded', () => {
 // STARTUP
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
-    // Random background
-    const backgrounds = [
-        'bandle city.png', 'bilgewater.png', 'demacia.png', 'freljord.png',
-        'ionia.png', 'ixtal.png', 'noxus.png',
-        'piltover.png', 'shadow isles.png', 'shurima.png', 'targon.png',
-        'the void.png', 'zaun.png'
-    ];
-    const randomBg = backgrounds[Math.floor(Math.random() * backgrounds.length)];
-    const bgPath   = `./assets/backgrounds/${randomBg}`;
-    document.body.style.backgroundImage    = `linear-gradient(rgba(15,15,18,0.85), rgba(15,15,18,0.85)), url('${bgPath}')`;
-    document.body.style.backgroundRepeat   = 'no-repeat';
-    document.body.style.backgroundPosition = 'center center';
-    document.body.style.backgroundAttachment = 'fixed';
-    document.body.style.backgroundSize    = 'cover';
+    // Skin (colours + background) — see components/skins.js. The default
+    // skin keeps the old behaviour: a random region background.
+    if (typeof window.applySavedSkin === 'function') window.applySavedSkin();
 
     if (typeof window.initWindowControls === 'function') window.initWindowControls();
     if (typeof window.initUpdateButton === 'function') window.initUpdateButton();

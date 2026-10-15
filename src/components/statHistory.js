@@ -33,7 +33,15 @@ const NON_CHARTABLE_IDS = new Set(['con_last10_wr']);
 const TIERS_ASC = ['iron', 'bronze', 'silver', 'gold', 'platinum',
                    'emerald', 'diamond', 'master', 'grandmaster', 'challenger'];
 
-const ACCENT = '#00cfbc';   // line colour for stats that have no rank benchmark
+// Line colour for stats with no rank benchmark: the skin's accent colour,
+// read when drawing so a skin change is picked up on the next draw.
+const ACCENT_FALLBACK = '#00cfbc';
+function accentColor() {
+    try {
+        const v = getComputedStyle(document.documentElement).getPropertyValue('--accent-primary').trim();
+        return /^#[0-9a-f]{6}$/i.test(v) ? v : ACCENT_FALLBACK;
+    } catch { return ACCENT_FALLBACK; }
+}
 
 // ---------------------------------------------------------------------------
 // PURE HELPERS (tested in test/statHistory.test.js)
@@ -314,7 +322,7 @@ function drawChart(canvas, history, thresholds, hoverIndex) {
     });
 
     // ── the line, broken across empty months ──
-    const lineColor = history.benchmarkable ? 'rgba(232,237,245,0.9)' : hexToRgba(ACCENT, 0.95);
+    const lineColor = history.benchmarkable ? 'rgba(232,237,245,0.9)' : hexToRgba(accentColor(), 0.95);
     const geo = history.points.map((p, i) => Number.isFinite(p.value) ? { x: xOf(i), y: yOf(p.value) } : null);
 
     ctx.lineWidth = 2;
@@ -335,7 +343,7 @@ function drawChart(canvas, history, thresholds, hoverIndex) {
         const g = geo[i];
         if (!g) return;
         // Dark tiers (Iron) are lightened so the dot doesn't vanish into the panel
-        const color = p.tier ? readable(RANK_COLORS[p.tier] || ACCENT) : (history.benchmarkable ? '#e8edf5' : ACCENT);
+        const color = p.tier ? readable(RANK_COLORS[p.tier] || accentColor()) : (history.benchmarkable ? '#e8edf5' : accentColor());
         const low   = p.games < LOW_SAMPLE;
         const r     = i === hoverIndex ? 6 : 4.5;
 

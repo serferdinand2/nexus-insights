@@ -542,3 +542,26 @@ it empty): "What's new" = commit subjects since the last `Release v…` commit,
 then `installer/release-notes.md` (install guide). Edit that file to change
 the guide. Links that would navigate the app window or open a new one are
 sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
+
+### UI polish + Skins — 2026-10
+
+- `styles/polish.css` (loaded after app.css) is the consistency layer: spacing
+  scale `--s1…--s6`, `--gutter` 12px, radii `--r-ctl/--r-card/--r-panel`,
+  surfaces `--surface/--line/--line-strong`, type `--t-label/--t-small/--t-body/--t-value`.
+  Floating glass nav rail, filters styled as tabs, rank cards 1 column wide
+  (`balanceStatsGrid` counts every card as 1 unit, max 8 columns).
+- **Never hard-code the accent.** Use `var(--accent-primary)`,
+  `rgba(var(--accent-rgb), a)`, `--accent-deep`, `--on-accent`, `var(--gold)`,
+  `rgba(var(--gold-rgb), a)`. `test/skins.test.js` fails if `#00cfbc` or
+  `rgba(0,207,188,…)` reappears in the stylesheets. Canvas code reads the
+  accent with `getComputedStyle` at draw time (see statHistory `accentColor`).
+- Win-rate colours: `components/winRateColor.js` (50% = grey, ±12 points
+  saturates). Not skinnable, nor are rank tier colours.
+- Skins: `components/skins.js` = data (`vars`, `overlay`, `background`),
+  `components/skinsPanel.js` = Skins page + `applySavedSkin()` at startup
+  (replaced the old random-background code in renderer.js). Saved as
+  `config.skin`; a custom background image is copied into the data folder
+  (`config.customBackground`). To add a skin, add an entry to `SKINS`.
+- `saveSetup` now merges into the existing config (it used to replace it and
+  wipe skin/coaching keys).
+- Page footer removed; Riot's legal notice lives in the Settings dialog.
