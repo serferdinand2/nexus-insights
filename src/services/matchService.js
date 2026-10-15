@@ -2,6 +2,7 @@ const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 const { computeTeamImpact } = require('./teamImpact');
+const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
 const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
@@ -288,8 +289,10 @@ async function syncMatches(puuid, onProgress) {
     console.log(`Total match IDs across all queues: ${allMatchIds.length}`);
     console.log(`DEBUG: First 5 match IDs:`, allMatchIds.slice(0, 5));
 
-    // Deduplicate and filter out matches already in DB
-    const matchIds = [...new Set(allMatchIds)].filter(id => !existingIds.has(id));
+    // Deduplicate and filter out matches already in DB. Oldest first: the next
+    // sync starts after the newest stored game, so an interrupted sync must
+    // never have stored a game newer than one it missed (issue #13).
+    const matchIds = oldestFirst(new Set(allMatchIds)).filter(id => !existingIds.has(id));
     const skipped = allMatchIds.length - matchIds.length;
     console.log(`${matchIds.length} new matches to process (${skipped} already in DB)`);
 
@@ -415,6 +418,12 @@ async function syncMatches(puuid, onProgress) {
             }
         } catch (error) {
             console.error(`Error processing match ${id}:`, error.message);
+            // Storing newer games past this one would leave it missing for
+            // good, so stop. The next sync resumes here.
+            if (shouldStopSync(error)) {
+                error.savedBeforeStop = newMatches;
+                throw error;
+            }
         }
 
         // Update progress after each match

@@ -245,6 +245,14 @@ window.handleSync = async function (options = {}) {
         else if (err.response?.status === 404) errorMessage = 'Player not found. Check your Riot ID';
         else if (err.response?.status === 429) errorMessage = 'Rate limited. Please wait a moment';
 
+        // syncMatches stops at the first game it couldn't fetch (oldest
+        // first), so the games before it are stored and the next sync
+        // carries on from there. Show what did land.
+        if (err.savedBeforeStop > 0) {
+            errorMessage += ` (${err.savedBeforeStop} new games were saved; sync again for the rest)`;
+            try { await window.loadMatchHistory(true); } catch (e) { console.warn('Reload after partial sync failed:', e.message); }
+        }
+
         updateStatus('error', 'Sync Failed', errorMessage);
         return { newMatches: 0, error: errorMessage };
     } finally {
