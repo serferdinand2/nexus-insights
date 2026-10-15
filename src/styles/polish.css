@@ -761,3 +761,11 @@ body {
 .skins-dim-box input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .skins-dim-box input:focus { outline: none; border-color: rgba(var(--accent-rgb), 0.6); box-shadow: var(--focus-ring); }
 #skinDimDefault { min-width: 56px; }
+
+/* The Analytics page lives inside an .app-container that also holds the
+   (fixed-position) Settings dialog. Switching pages hides #analytics-tab but
+   left that wrapper — and its titlebar + gutter padding — in the flow, so
+   every other page started ~56px lower. Collapse it when Analytics is hidden. */
+.app-container:has(> #analytics-tab[style*="none"]) {
+    padding: 0;
+}
