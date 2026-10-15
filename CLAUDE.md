@@ -1,7 +1,14 @@
 # Nexus Insights — Project Context
 
-> **Last updated**: 2026-08-01
+> **Last updated**: 2026-10-15
 > **Status**: Active development
+>
+> **2026-10 changes** (details in the Notes section): fixed left nav rail,
+> Chat page (local Ollama), self-update from GitHub Releases (⟳ button),
+> shareable installer + `Publish Update.bat`, UI polish layer (`polish.css`),
+> Skins page with background dim, Coaching page rewritten again around
+> game-to-game progress (`coachingProgress.js`), stat-history charts,
+> win-rate colour scale.
 >
 > **2026-08 changes**: left nav drawer replaces the top tab bar; game-mode
 > filters moved onto the summoner row; per-match LP tracking (intra-day
@@ -51,7 +58,14 @@ src/
 │   ├── analyticsEngine.js     # 9-tab stat calculator + rank benchmark system (699 lines)
 │   ├── badgeEvaluator.js      # Badge evaluation engine (39 badges)
 │   ├── calendarPanel.js       # Activity calendar, time insights, LP progression charts (441 lines)
-│   ├── coachingPanel.js       # Coaching board with expandable goal cards (883 lines)
+│   ├── coachingPanel.js       # Coaching page UI
+│   ├── coachingProgress.js    # Coaching calculations (pure, tested)
+│   ├── coachingEngine.js      # Picks the focus metric
+│   ├── chatPanel.js / chatAgent.js / chatTools.js / markdown.js  # Chat page (Ollama)
+│   ├── skins.js / skinsPanel.js   # Skins data + Skins page
+│   ├── statHistory.js         # Click-a-card history chart
+│   ├── winRateColor.js        # Win-rate colour scale
+│   ├── updateButton.js        # ⟳ title-bar update button
 │   ├── filtersPanel.js        # Queue/champion filter logic
 │   ├── matchCard.js           # Match card HTML helpers (icons, runes, spells, duration)
 │   ├── matchModal.js          # Inline expanded rows — 10-player table + badges
@@ -64,9 +78,14 @@ src/
 │   ├── database.js            # SQLite schema, migrations, init (368 lines)
 │   ├── config.js              # Config load/save (%APPDATA%/nexus-insights/)
 │   ├── dataDragon.js          # Data Dragon CDN: items, runes, spells, champions
-│   └── compression.js         # JSON gzip compress/decompress
+│   ├── compression.js         # JSON gzip compress/decompress
+│   ├── updater.js             # electron-updater wrapper (GitHub Releases)
+│   ├── ollama.js              # Local Ollama client
+│   ├── liveClient.js          # League Live Client Data API
+│   └── paths.js / rateLimiter.js
 └── styles/
-    ├── app.css                # Main stylesheet (~94KB, dark theme, gold/teal accents)
+    ├── app.css                # Main stylesheet (dark theme, gold/teal accents)
+    ├── polish.css             # Consistency layer, loaded after app.css
     └── toast.css              # Toast notification styles
 ```
 
@@ -77,8 +96,8 @@ src/
 ## How the App Looks
 
 - **Dark theme** throughout, with gold/teal CSS custom property accents
-- **Header**: "Nexus Insights" logo centred, settings gear (⚙️) top-right
-- **Top navigation**: Two tabs — 📊 **Analytics** (default) and 🎯 **Coaching** (with an unmet-goals badge counter)
+- **Title bar**: Nexus logo + name on the left, ⟳ update button and ⚙ settings (SVG) top-right
+- **Left nav rail** (always visible): Analytics (default), Match History, Coaching, Chat, Skins
 - **Analytics tab**:
   - Summoner Name # Tag input + "Sync Matches" button at the top
   - Progress bar with new/filtered/existing counters during sync
@@ -89,7 +108,7 @@ src/
   - LP Progression line charts (Canvas) for Solo/Duo and Flex
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
-- **Coaching tab**: Data-driven goal cards (collapsed by default, click to expand). Shows a progress ring (goals met/total), each card has a priority badge (HIGH/MED/LOW), quick-tip summary, expandable progress bar + detailed stats + insight text + action advice. Confetti burst when all goals are met.
+- **Coaching tab**: Solo/Duo only. Rank header, last-game report (‹ › to step back), focus metric with hit/miss dots, area trends with sparklines, collapsed Details. See "Coaching page (rewritten 2026-10)" below.
 - **Expanded Match Rows**: clicking a match-table row expands an inline full 10-player breakdown (both teams): items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
@@ -116,12 +135,9 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 
 ### Coaching Tab
 
-- Reads Solo/Duo (queue 420) matches for the current season from SQLite directly
-- Computes coaching metrics: dragon control, early game (GD@15), isolated deaths, champion pool depth, streaks, etc.
-- Renders expandable "task cards" sorted by priority (HIGH → MED → LOW)
-- Goal status is **data-driven** — auto-resolved when the target metric is met
-- Badge counter in the nav tab shows remaining unmet goals
-- Confetti burst animation when 100% of goals are achieved
+Solo/Duo only; organised around "am I improving game to game?". Sections: rank
+header, game-by-game report, your focus, area trends, details. All numbers come
+from `computeTabStats`. Full description: "Coaching page (rewritten 2026-10)" in Notes.
 
 ### Activity Calendar
 
@@ -298,13 +314,13 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | `evaluateBenchmark(value, statId, higherIsBetter)` | Returns rank tier string for a value |
 | `buildCard(...)` | Constructs a stat card data object with benchmark + trend |
 
-### coachingPanel.js
+### coachingPanel.js / coachingProgress.js
 | Function | Purpose |
 |----------|---------|
-| `window.renderCoachingPanel()` | Main entry — queries DB directly, computes all coaching metrics, renders cards |
-| `window.coachingToggleBody(id)` | Expand/collapse a coaching card |
-| `updateProgressRing(achieved, total)` | Updates the progress ring + nav badge |
-| `buildTask({...})` | Builds a single coaching card HTML |
+| `window.renderCoachingPanel()` | Main entry — renders from `window.matchesData` (Solo/Duo, remakes excluded) |
+| `window.coachingStep(n)` | Step the game-by-game report back/forward |
+| `window.coachingSetFocus/ClearFocus` | Pin or release the focus metric |
+| `rankHeader / lastGameReport / focusHits / areaTrends` | Pure calculators in `coachingProgress.js` (tested) |
 
 ### calendarPanel.js
 | Function | Purpose |
@@ -469,6 +485,8 @@ Two traps, both found by the parity harness:
    Death share is stored as `enemyTeamKills` rather than a ratio, so the
    calculator keeps dividing the authoritative `deaths` column.
 
+**The repo must be public** for the download link and ⟳ updates to work; a private repo shows 404 to everyone but the owner. Never paste the token in chat — write it straight into the token file.
+
 ### Left nav rail — 2026-10
 
 The sliding drawer is gone. `#navDrawer` carries `nav-rail` and is always
@@ -527,7 +545,8 @@ version (`--version X.Y.Z` to override), strips the LP seed, builds, uploads
 `Nexus Insights Setup X.exe` + `.blockmap` + `latest.yml` to release `vX`
 (`releaseType: release`, not draft — drafts are invisible to the updater),
 then `git add -A`, commits "Release vX" and pushes. On failure the version
-bump is reverted. Token: `GH_TOKEN` env or
+bump is reverted. `build-installer.js` first calls the GitHub API with the token and stops with a
+clear message on 401. Token: `GH_TOKEN` env or
 `%APPDATA%\nexus-insights\github-token.txt` (fine-grained, this repo only,
 Contents read/write). The installer is unsigned: SmartScreen warns on first
 install, updates still work. The portable zip cannot self-update.
@@ -582,6 +601,25 @@ and re-renders on every open.
   rolling-10 sparkline of a lead stat).
 - Every value comes from `computeTabStats` — for the report it's run over a
   one-game list — so Coaching can't disagree with the Analytics cards.
+- **Per-role report** (`components/roleBenchmarks.js`): 4 general stats (KDA,
+  KP, deaths before 10, isolated deaths) + 4 for the role played that game
+  (`ROLE_STATS`). "Usual" = the 20 earlier games in the same role (fewer than
+  5 → all roles, and the summary says so). Tile badges use `ROLE_BENCHMARKS`
+  overrides, falling back to the general `STAT_BENCHMARKS`; lane-opponent
+  diffs (GD/CSD/XPD@15) always use the general ladder. **Per-role badges are
+  Coaching only** — Analytics cards cover mixed roles and keep general
+  values. Role thresholds are estimates; tune them in that file.
+- **Trend switches**: each Trends card has a "Last 10 / All games" switch
+  (saved as `config.coachingTrendsAll`, an array of area tabs). All-games mode
+  (`areaTrendAll`): value over every Solo/Duo game, verdict/highlights = newer
+  half vs older half, sparkline = rolling 20-game average sampled across the
+  whole history (≤30 points). Cards are `div role=button` so the switch isn't
+  a nested button; the switch stops click propagation. A master switch above
+  the cards (`coachingToggleAllTrends`) sets every card to all games, or back
+  to last 10 if they're all on already; it shows "N of 6" when mixed.
+- `plates_taken` is left out: stored values (4–7/game) are far off its
+  benchmark scale (Challenger = 2.7), so it's probably team plates. Control
+  wards also run above the general scale (6–7/game).
 - `coachingEngine.js` still picks the focus (input vs outcome split,
   recoverable win rate); its tilt / watch / outcome evidence moved under a
   collapsed "Details".

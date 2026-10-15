@@ -91,3 +91,72 @@ test('rank header: W-L and LP over the last 10, saying how many had LP tracked',
     assert.equal(h.lpTracked, 2);
     assert.equal(P.rankHeader(games, {}).lpChange, null);
 });
+
+// ── Per-role report (2026-10) ──────────────────────────────────────────────
+const Roles = require(path.join(SRC, 'components', 'roleBenchmarks.js'));
+
+test('report shows 4 general + 4 role stats for the role played that game', () => {
+    const games = series(10, () => ({ kills: 3, deaths: 3, assists: 3 }));
+    games[9].teamPosition = 'UTILITY';
+    const r = P.lastGameReport(games, 9, cts);
+    assert.equal(r.role, 'UTILITY');
+    const ids = r.stats.map(s => s.id);
+    for (const id of Roles.GENERAL_STATS) assert.ok(ids.includes(id), id);
+    for (const id of ['vis_vs_min', 'vis_control', 'vis_killed']) assert.ok(ids.includes(id), id);
+    assert.ok(!ids.includes('cs_10'), 'support report has no CS at 10');
+});
+
+test('"usual" means earlier games in the same role, falling back to all roles', () => {
+    // 20 jungle games, then 6 mid games, then the mid game we look at
+    const games = series(27, i => ({ teamPosition: i < 20 ? 'JUNGLE' : 'MIDDLE', kills: 3, deaths: 3, assists: 3 }));
+    const r = P.lastGameReport(games, 26, cts);
+    assert.equal(r.baselineByRole, true);
+    assert.equal(r.baselineCount, 6);
+    // only 2 earlier mid games → all roles
+    const r2 = P.lastGameReport(games, 22, cts);
+    assert.equal(r2.baselineByRole, false);
+    assert.equal(r2.baselineCount, 20);
+});
+
+test('badges use role thresholds: support CS and jungle damage are judged by their role', () => {
+    const supportCsm = Roles.benchmarkFor('avg_csm', 'UTILITY', () => null);
+    assert.equal(Roles.tierFor(1.7, supportCsm, true), 'emerald');
+    // falls back to the general ladder when the role has no override
+    const general = window.getStatBenchmark;
+    assert.deepEqual(Roles.benchmarkFor('gd_15', 'JUNGLE', general), general('gd_15'));
+    // same >= / <= rule as the Analytics cards
+    const t = Roles.ROLE_BENCHMARKS.TOP.dr_isolated;
+    assert.equal(Roles.tierFor(t.gold, t, false), 'gold');
+    assert.equal(Roles.tierFor(99, t, false), 'iron');
+});
+
+test('every role stat has a label, a tab and a tolerance', () => {
+    for (const role of [...Roles.ROLES, 'UNKNOWN']) {
+        for (const id of Roles.statsForRole(role)) {
+            const i = Roles.STAT_INFO[id];
+            assert.ok(i && i.tab && i.label && i.tol > 0, `${role} ${id}`);
+        }
+        assert.equal(Roles.statsForRole(role).length, 8, role);
+    }
+    for (const [role, stats] of Object.entries(Roles.ROLE_BENCHMARKS))
+        for (const [id, l] of Object.entries(stats))
+            assert.deepEqual(Object.keys(l), Roles.TIERS, `${role} ${id}`);
+});
+
+test('a trend switched to "all games" uses every game: newer half vs. older half', () => {
+    // deaths fall steadily across 40 games
+    const games = series(40, i => ({ kills: 3, deaths: Math.max(1, 8 - Math.floor(i / 6)), assists: 4,
+        deathsBefore10: i < 20 ? 1 : 0, isolatedDeaths: i < 20 ? 3 : 1 }));
+    const out = P.areaTrends(games, cts, 30, { all: ['Death Review'] });
+    const dr = out.find(a => a.tab === 'Death Review');
+    const lane = out.find(a => a.tab === 'Lane Phase');
+    assert.equal(dr.mode, 'all');
+    assert.equal(dr.games, 40);
+    assert.equal(lane.mode, 'recent');
+    assert.equal(lane.games, 10);
+    // lead value = the Death Review card over ALL games
+    const card = cts('Death Review', games).find(c => c.id === 'dr_avg_deaths');
+    assert.equal(dr.lead.display, card.displayValue);
+    assert.equal(dr.verdict, 'improving');
+    assert.ok(dr.spark.length > 1 && dr.spark.length <= 30);
+});

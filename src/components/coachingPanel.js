@@ -148,7 +148,7 @@
             <div class="coach-tile ${s.verdict || ''}">
               <div class="coach-tile-label">${escapeHtml(s.label)}</div>
               <div class="coach-tile-value">${escapeHtml(String(s.display))}</div>
-              ${s.color ? `<span class="coach-tile-tier" style="background:${escapeHtml(s.color)}" title="The rank this value would match on average">${escapeHtml(cap(s.tier))}</span>` : '<span class="coach-tile-tier coach-tile-tier--none"></span>'}
+              ${s.color ? `<span class="coach-tile-tier" style="background:${escapeHtml(s.color)}" title="${escapeHtml(s.roleBenchmark && role ? `The rank this value would match for a ${role} player` : 'The rank this value would match on average')}">${escapeHtml(cap(s.tier))}</span>` : '<span class="coach-tile-tier coach-tile-tier--none"></span>'}
               <div class="coach-tile-foot">
                 <span class="coach-tile-verdict">${arrow} ${word}</span>
                 <span class="coach-dim">usual ${escapeHtml(String(s.baselineDisplay))}</span>
@@ -159,10 +159,11 @@
         const summary = r.baselineCount < 5
             ? `<span class="coach-dim">Not enough earlier games to compare with yet.</span>`
             : `<b class="good">${r.better} better</b> than usual · <b class="bad">${r.worse} worse</b> · ${r.same} about the same
-               <span class="coach-dim">— compared with your ${r.baselineCount} games before it</span>`;
+               <span class="coach-dim">— compared with your ${r.baselineCount} ${r.baselineByRole && role ? escapeHtml(role) + ' ' : ''}games before it${!r.baselineByRole && role ? ` (too few ${escapeHtml(role)} games, so all roles)` : ''}</span>`;
 
         return `
         <div class="coach-report" id="coachReport">
+          ${role ? `<div class="coach-report-role">${escapeHtml(role)} report <span class="coach-dim">· 4 general stats + 4 that matter most for ${escapeHtml(role)}</span></div>` : ''}
           <div class="coach-report-head">
             <button class="coach-step" onclick="coachingStep(-1)" ${r.index === 0 ? 'disabled' : ''} title="Earlier game" aria-label="Earlier game">‹</button>
             <div class="coach-report-title">
@@ -170,7 +171,7 @@
                 · <b class="${g.win ? 'good' : 'bad'}">${g.win ? 'Win' : 'Loss'}</b>
                 · ${(g.kills ?? 0)} / ${(g.deaths ?? 0)} / ${(g.assists ?? 0)} <span class="coach-dim">KDA</span>
                 ${lp ? ` · <span class="${lp.startsWith('+') ? 'good' : 'bad'}">${lp}</span>` : ''}</div>
-              <div class="coach-dim">${isLatest ? 'Your last game' : `Game ${r.index + 1} of ${r.total}`} · ${timeAgo(g.gameCreation)}</div>
+              <div class="coach-dim">${isLatest ? 'Your last Solo/Duo game' : `${r.total - 1 - r.index} Solo/Duo game${r.total - 1 - r.index === 1 ? '' : 's'} before your last`} · ${timeAgo(g.gameCreation)}</div>
             </div>
             <button class="coach-step" onclick="coachingStep(1)" ${isLatest ? 'disabled' : ''} title="Later game" aria-label="Later game">›</button>
           </div>
@@ -258,31 +259,99 @@
     }
 
     // ── 4. Trends ────────────────────────────────────────────────────────────
+    // Which trend cards are switched to "all Solo/Duo games" (saved in config)
+    function trendsAll() {
+        const v = loadConfig().coachingTrendsAll;
+        return Array.isArray(v) ? v : [];
+    }
+
+    window.coachingToggleTrendAll = function (event, tab) {
+        if (event) { event.stopPropagation(); event.preventDefault(); }
+        const cfg = loadConfig();
+        const set = new Set(Array.isArray(cfg.coachingTrendsAll) ? cfg.coachingTrendsAll : []);
+        if (set.has(tab)) set.delete(tab); else set.add(tab);
+        cfg.coachingTrendsAll = [...set];
+        saveConfig(cfg);
+        redrawTrends(cfg.coachingTrendsAll);
+    };
+
+    // Master switch: all on unless every card is already on, then all off
+    window.coachingToggleAllTrends = function () {
+        const cfg = loadConfig();
+        const tabs = Progress.AREAS.map(a => a.tab);
+        const current = Array.isArray(cfg.coachingTrendsAll) ? cfg.coachingTrendsAll : [];
+        const allOn = tabs.every(t => current.includes(t));
+        cfg.coachingTrendsAll = allOn ? [] : tabs;
+        saveConfig(cfg);
+        redrawTrends(cfg.coachingTrendsAll);
+    };
+
+    function redrawTrends(allTabs) {
+        const el = document.getElementById('coachTrends');
+        if (el && state.games.length) {
+            el.innerHTML = renderTrends(Progress.areaTrends(state.games, window.computeTabStats, 30, { all: allTabs }));
+        }
+    }
+
+    window.coachingAreaKey = function (event, tab) {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); window.coachingOpenArea(tab); }
+    };
+
     function renderTrends(areas) {
         if (!areas.length) return `<div class="coach-empty">Play at least 10 Solo/Duo games to see trends.</div>`;
         const VERDICT = { improving: 'Improving', steady: 'Steady', slipping: 'Slipping' };
-        return `<div class="coach-areas">${areas.map(a => `
-            <button type="button" class="coach-area" onclick="coachingOpenArea('${escapeHtml(a.tab)}')"
-                    title="Open ${escapeHtml(a.tab)} on the Analytics page">
+        const onCount = areas.filter(a => a.mode === 'all').length;
+        const allOn = onCount === areas.length;
+        const master = `
+          <div class="coach-trends-bar">
+            <label class="coach-switch coach-switch--master"
+                   title="${allOn ? 'Switch every card back to your last 10 games' : 'Switch every card to all your Solo/Duo games'}">
+              <input type="checkbox" ${allOn ? 'checked' : ''} onchange="coachingToggleAllTrends()">
+              <span class="coach-switch-track"><span class="coach-switch-thumb"></span></span>
+              <span class="coach-switch-label">${allOn ? 'All cards: all games'
+                  : onCount ? `${onCount} of ${areas.length} on all games — flip to set all`
+                  : 'All cards: last 10 games'}</span>
+            </label>
+          </div>`;
+        return `${master}<div class="coach-areas">${areas.map(a => {
+            const all = a.mode === 'all';
+            const tab = escapeHtml(a.tab);
+            const caption = all
+                ? `${a.sparkWindow}-game average across all ${a.games} Solo/Duo games`
+                : `10-game average over your last ${a.spark.length + 9} games`;
+            const count = all
+                ? `${a.improving} of ${a.total} stats better · ${a.slipping} worse <span title="Your newer half of games vs. your older half">(newer half vs. older half)</span>`
+                : `${a.improving} of ${a.total} stats better · ${a.slipping} worse`;
+            return `
+            <div class="coach-area${all ? ' is-all' : ''}" role="button" tabindex="0"
+                 onclick="coachingOpenArea('${tab}')" onkeydown="coachingAreaKey(event, '${tab}')"
+                 title="Open ${tab} on the Analytics page">
               <div class="coach-area-head">
-                <span class="coach-area-name">${escapeHtml(a.tab)}</span>
+                <span class="coach-area-name">${tab}</span>
                 <span class="coach-verdict ${a.verdict}">${VERDICT[a.verdict]}</span>
               </div>
+              <label class="coach-switch" onclick="event.stopPropagation()" onkeydown="event.stopPropagation()"
+                     title="${all ? 'Showing all your Solo/Duo games — switch off for the last 10' : 'Showing your last 10 games — switch on for all Solo/Duo games'}">
+                <input type="checkbox" ${all ? 'checked' : ''} onchange="coachingToggleTrendAll(null, '${tab}')">
+                <span class="coach-switch-track"><span class="coach-switch-thumb"></span></span>
+                <span class="coach-switch-label">${all ? `All ${a.games} games` : 'Last 10 games'}</span>
+              </label>
               ${a.lead ? `
               <div class="coach-area-lead">
                 <span class="coach-dim">${escapeHtml(a.lead.label)}</span>
                 <b${a.lead.color ? ` style="color:${escapeHtml(a.lead.color)}"` : ''}>${escapeHtml(String(a.lead.display))}</b>
               </div>` : ''}
               ${sparkline(a.spark)}
-              <div class="coach-spark-caption coach-dim">10-game average over your last ${a.spark.length + 9} games</div>
+              <div class="coach-spark-caption coach-dim">${caption}</div>
               <div class="coach-area-list">${a.highlights.map(h => `
                 <div class="coach-area-row">
                   <span>${escapeHtml(h.label)}</span>
                   <span class="${h.improving ? 'good' : 'bad'}">${escapeHtml(String(h.before))} → ${escapeHtml(String(h.now))} ${h.improving ? '▲' : '▼'}</span>
                 </div>`).join('')}
               </div>
-              <div class="coach-area-count coach-dim">${a.improving} of ${a.total} stats better · ${a.slipping} worse</div>
-            </button>`).join('')}
+              <div class="coach-area-count coach-dim">${count}</div>
+            </div>`;
+        }).join('')}
           </div>`;
     }
 
@@ -378,8 +447,8 @@
                 }
             }
 
-            // New games since last time → jump back to the latest
-            if (state.index === null || games.length !== state.lastCount) state.index = games.length - 1;
+            // Every visit starts on the most recent Solo/Duo game
+            state.index = games.length - 1;
             state.games = games;
             state.lastCount = games.length;
 
@@ -395,7 +464,7 @@
                 reading = readings && readings.length ? readings[readings.length - 1] : null;
             } catch { /* LP history is optional */ }
 
-            const areas = Progress.areaTrends(games, window.computeTabStats);
+            const areas = Progress.areaTrends(games, window.computeTabStats, 30, { all: trendsAll() });
 
             container.innerHTML = `
               ${renderHeader(games, reading, result.roleLabel)}
@@ -406,8 +475,8 @@
               <div class="coach-section-label">Your focus <span class="coach-dim">— one habit at a time</span></div>
               ${renderFocus(result.focus, result.progress, result.role, result.roleLabel)}
 
-              <div class="coach-section-label">Trends <span class="coach-dim">— your last 10 games vs. the 10 before · click one to open it in Analytics</span></div>
-              ${renderTrends(areas)}
+              <div class="coach-section-label">Trends <span class="coach-dim">— last 10 games vs. the 10 before, or flip a switch for all your Solo/Duo games · click one to open it in Analytics</span></div>
+              <div id="coachTrends">${renderTrends(areas)}</div>
 
               ${renderDetails(result)}`;
         } catch (err) {
