@@ -499,3 +499,32 @@ and the app answers with values from the same formulas as the stat cards.
 - Tests: `chatTools`, `ollama` (fake HTTP server), `chatAgent`, `markdown` (XSS).
   `chatPanel.js` itself needs Electron + sqlite and is checked by hand.
 - **If you add a tool**, add its schema to `TOOLS` and a `describeCall` label.
+
+### Updates from GitHub (titlebar ⟳ button) — 2026-10
+
+Installed copies update themselves from **GitHub Releases** of the public repo
+`toancina/nexus-insights` (`build.publish` in package.json; electron-builder
+writes it into the app as `resources/app-update.yml` on every build).
+
+- `services/updater.js` (main) wraps `electron-updater` with `autoDownload =
+  false`. Click → check → if newer: download → `ready` → after 2.5 s
+  `quitAndInstall(true, true)` (silent install, relaunch). `beforeRestart` sets
+  `isQuitting` so close-to-tray can't swallow the restart. Status goes to the
+  renderer on `update:status` `{state, version, percent, message}`; states:
+  checking / available / downloading / ready / none / dev / error.
+- A **quiet check 8 s after launch** only lights the green dot; it never
+  downloads, and stays silent when offline or up to date.
+- From source (`!app.isPackaged`) electron-updater isn't loaded; the button
+  says to use `git pull`.
+- `components/updateButton.js` = the button (spinner while busy, % in tooltip).
+- Tests: `test/updater.test.js` (fake autoUpdater).
+
+**Releasing:** `Publish Update.bat` / `npm run release` → bumps the patch
+version (`--version X.Y.Z` to override), strips the LP seed, builds, uploads
+`Nexus Insights Setup X.exe` + `.blockmap` + `latest.yml` to release `vX`
+(`releaseType: release`, not draft — drafts are invisible to the updater),
+then `git add -A`, commits "Release vX" and pushes. On failure the version
+bump is reverted. Token: `GH_TOKEN` env or
+`%APPDATA%\nexus-insights\github-token.txt` (fine-grained, this repo only,
+Contents read/write). The installer is unsigned: SmartScreen warns on first
+install, updates still work. The portable zip cannot self-update.

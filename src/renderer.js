@@ -27,6 +27,7 @@ window.require('./components/calendarPanel'); // registers initCalendar, renderL
 window.require('./components/filtersPanel'); // registers applyFilters, toggleAllFilters, clearGameModeFilters
 window.require('./components/coachingPanel'); // registers renderCoachingPanel
 window.require('./components/windowControls'); // registers initWindowControls
+window.require('./components/updateButton');   // registers initUpdateButton (titlebar ⟳)
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
 
 // Destructure named exports needed inside renderer.js itself
@@ -1016,6 +1017,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.body.style.backgroundSize    = 'cover';
 
     if (typeof window.initWindowControls === 'function') window.initWindowControls();
+    if (typeof window.initUpdateButton === 'function') window.initUpdateButton();
 
     const configValid = checkConfigOnStartup();
 

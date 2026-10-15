@@ -127,3 +127,16 @@ lazy-JSON-loading design, and which analytics tabs need which data.
 
 `SECURITY-NOTES.md` covers repo hygiene and the outstanding renderer-privilege
 question.
+
+---
+
+## Updates
+
+The installed app has an update button (⟳) next to Settings. It checks this
+repo's GitHub Releases, downloads a newer version and restarts into it. Your
+matches, API key and settings are kept (they live in `%APPDATA%\nexus-insights`).
+
+**To release a new version:** double-click `Publish Update.bat`. It raises the
+version number, builds the installer, uploads it as a GitHub Release, and
+commits + pushes the code. The first time, it asks for a GitHub token. Put it
+in `%APPDATA%\nexus-insights\github-token.txt` (never inside this folder).

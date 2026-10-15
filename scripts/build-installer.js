@@ -24,6 +24,14 @@
  *
  * Flags:
  *   --dry-run   do the strip + checks + restore, but skip electron-builder
+ *   --publish   RELEASE AN UPDATE (npm run release / "Publish Update.bat"):
+ *               bump the patch version (1.0.3 -> 1.0.4), build, upload the
+ *               installer + latest.yml to a GitHub Release, then commit and
+ *               push. Installed copies pick it up from the ⟳ button.
+ *               Needs a GitHub token: GH_TOKEN env var, or the token pasted
+ *               into %APPDATA%\nexus-insights\github-token.txt (outside the
+ *               repo, so it can never be committed).
+ *   --version X.Y.Z   with --publish, use this version instead of the bump
  */
 
 const fs   = require('fs');
@@ -32,6 +40,11 @@ const { spawnSync } = require('child_process');
 
 const ROOT    = path.join(__dirname, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
+const PUBLISH = process.argv.includes('--publish');
+const VERSION_ARG = (() => {
+    const i = process.argv.indexOf('--version');
+    return i > -1 ? process.argv[i + 1] : null;
+})();
 const SEED_FILE = path.join(ROOT, 'src', 'components', 'calendarPanel.js');
 const BACKUP    = SEED_FILE + '.build-backup';
 
@@ -66,8 +79,62 @@ for (const [rel, what] of need) {
     }
 }
 
-const pkg = require(path.join(ROOT, 'package.json'));
-console.log(`\n  Building Nexus Insights ${pkg.version} installer\n`);
+// ---------------------------------------------------------------------------
+// 1b. Release mode: token + version bump
+// ---------------------------------------------------------------------------
+const PKG_FILE  = path.join(ROOT, 'package.json');
+const LOCK_FILE = path.join(ROOT, 'package-lock.json');
+const pkgText   = fs.readFileSync(PKG_FILE, 'utf8');
+const lockText  = fs.existsSync(LOCK_FILE) ? fs.readFileSync(LOCK_FILE, 'utf8') : null;
+const pkg       = JSON.parse(pkgText);
+let   buildEnv  = process.env;
+
+function readToken() {
+    if (process.env.GH_TOKEN) return process.env.GH_TOKEN.trim();
+    const file = path.join(process.env.APPDATA || '', 'nexus-insights', 'github-token.txt');
+    if (fs.existsSync(file)) return fs.readFileSync(file, 'utf8').trim();
+    return '';
+}
+
+function bumpPatch(v) {
+    const m = /^(\d+)\.(\d+)\.(\d+)$/.exec(v);
+    if (!m) fail(`Can't bump version "${v}" — use --version X.Y.Z`);
+    return `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
+}
+
+function setVersion(v) {
+    fs.writeFileSync(PKG_FILE, pkgText.replace(/("version":\s*")[^"]+(")/, `$1${v}$2`));
+    if (lockText) {
+        const lock = JSON.parse(lockText);
+        lock.version = v;
+        if (lock.packages && lock.packages['']) lock.packages[''].version = v;
+        fs.writeFileSync(LOCK_FILE, JSON.stringify(lock, null, 2) + '\n');
+    }
+}
+
+function restoreVersion() {
+    fs.writeFileSync(PKG_FILE, pkgText);
+    if (lockText) fs.writeFileSync(LOCK_FILE, lockText);
+}
+
+if (PUBLISH) {
+    const token = readToken();
+    if (!token && !DRY_RUN) {
+        fail('No GitHub token found, so the release can\'t be uploaded.\n' +
+             '  1. On github.com: Settings > Developer settings > Personal access tokens >\n' +
+             '     Fine-grained tokens > Generate new token. Repository access: only\n' +
+             '     "nexus-insights". Permissions: Contents = Read and write.\n' +
+             '  2. Paste the token (one line, nothing else) into\n' +
+             '     %APPDATA%\\nexus-insights\\github-token.txt\n' +
+             '  3. Run this again.');
+    }
+    if (VERSION_ARG && !/^\d+\.\d+\.\d+$/.test(VERSION_ARG)) fail(`--version must look like 1.2.3 (got "${VERSION_ARG}")`);
+    pkg.version = VERSION_ARG || bumpPatch(pkg.version);
+    setVersion(pkg.version);
+    buildEnv = { ...process.env, GH_TOKEN: token };
+}
+
+console.log(`\n  ${PUBLISH ? 'Releasing' : 'Building'} Nexus Insights ${pkg.version}\n`);
 
 // ---------------------------------------------------------------------------
 // 2. Strip personal data (temporarily)
@@ -111,10 +178,11 @@ try {
         const bin = path.join(ROOT, 'node_modules', '.bin',
             process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
         console.log('  Running electron-builder (takes a minute or two)...\n');
-        const r = spawnSync(`"${bin}"`, ['--win', 'nsis', '--x64', '--publish', 'never'], {
+        const r = spawnSync(`"${bin}"`, ['--win', 'nsis', '--x64', '--publish', PUBLISH ? 'always' : 'never'], {
             cwd: ROOT,
             stdio: 'inherit',
             shell: true,
+            env: buildEnv,
         });
         exitCode = r.status === null ? 1 : r.status;
     }
@@ -127,7 +195,13 @@ try {
     console.log('\n  calendarPanel.js restored to your original.');
 }
 
-if (exitCode !== 0) fail('electron-builder failed (see the output above).');
+if (PUBLISH && (exitCode !== 0 || DRY_RUN)) {
+    // Nothing went out — don't leave a bumped version behind
+    restoreVersion();
+    if (DRY_RUN) console.log('  Version bump undone (dry run).');
+}
+if (exitCode !== 0) fail('electron-builder failed (see the output above).' +
+    (PUBLISH ? '\n  Nothing was released; the version number was put back.' : ''));
 if (DRY_RUN) { console.log('  Dry run OK.\n'); process.exit(0); }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +216,27 @@ const setup = fs.readdirSync(distDir)
 if (!setup) fail('Build reported success but no Setup .exe was found in dist\\.');
 
 const mb = (fs.statSync(path.join(distDir, setup.f)).size / 1048576).toFixed(0);
+
+if (PUBLISH) {
+    // Record the release in git so the repo matches what was shipped.
+    // .gitignore keeps the database, dist\ and secrets out.
+    const git = (...args) => spawnSync('git', args, { cwd: ROOT, stdio: 'inherit' }).status === 0;
+    const committed = git('add', '-A') && git('commit', '-m', `Release v${pkg.version}`);
+    const pushed = committed && git('push');
+
+    console.log('\n  =========================================================');
+    console.log(`   RELEASED v${pkg.version}`);
+    console.log(`   https://github.com/toancina/nexus-insights/releases/tag/v${pkg.version}`);
+    console.log('');
+    console.log('   Installed copies get it from the update button (top right).');
+    if (!pushed) {
+        console.log('');
+        console.log('   NOTE: the code could not be committed/pushed automatically.');
+        console.log('   Run "git push" yourself so GitHub has the matching code.');
+    }
+    console.log('  =========================================================\n');
+    process.exit(0);
+}
 console.log('\n  =========================================================');
 console.log('   DONE');
 console.log(`   ${path.join(distDir, setup.f)}  (${mb} MB)`);

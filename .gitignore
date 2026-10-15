@@ -28,6 +28,7 @@ npm-debug.log*
 logs/
 
 # ── Editor / OS cruft ────────────────────────────────────
+.claude/settings.local.json
 .vscode/
 .idea/
 .DS_Store

@@ -4,6 +4,7 @@ const fs   = require('fs');
 
 const { initDatabase } = require('./services/database');
 const { loadConfig, setConfigValue } = require('./services/config');
+const { createUpdater } = require('./services/updater');
 
 // No application menu — the File/Edit/View/Window/Help bar is Electron's
 // default, not something this app uses. Removing it also removes its
@@ -289,6 +290,39 @@ ipcMain.on('settings:background', (event, { closeToTray, startOnLogin }) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Updates from GitHub Releases (titlebar ⟳ button). See services/updater.js.
+// electron-updater is only loaded in the installed app — from source there is
+// no app-update.yml and nothing to install into.
+// ---------------------------------------------------------------------------
+let updater = null;
+function getUpdater() {
+  if (updater) return updater;
+  let autoUpdater = null;
+  if (app.isPackaged) {
+    try {
+      ({ autoUpdater } = require('electron-updater'));
+    } catch (err) {
+      console.warn('electron-updater unavailable:', err.message);
+    }
+  }
+  updater = createUpdater({
+    autoUpdater,
+    isPackaged: app.isPackaged,
+    currentVersion: app.getVersion(),
+    send: (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:status', status);
+    },
+    // quitAndInstall closes the window; without this, close-to-tray would
+    // just hide it and the installer would never get to run.
+    beforeRestart: () => { isQuitting = true; },
+  });
+  return updater;
+}
+
+ipcMain.on('update:check', () => getUpdater().check());
+ipcMain.handle('app:version', () => app.getVersion());
+
 // Second launch (desktop shortcut while the tray copy runs) — surface the
 // existing window instead of starting over.
 app.on('second-instance', showMainWindow);
@@ -303,6 +337,12 @@ app.whenReady().then(() => {
   // config edited by hand, and a first run where the default has never been
   // registered with Windows.
   applyLoginItemSetting(loadConfig().startOnLogin);
+
+  // Quiet check a few seconds after launch: only lights the dot on the update
+  // button, never downloads or restarts on its own.
+  if (app.isPackaged) {
+    setTimeout(() => getUpdater().check({ quiet: true }), 8000);
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow();

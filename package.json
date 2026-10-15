@@ -11,10 +11,12 @@
     "diagnose": "node scripts/diagnose-sync.js",
     "cleanup": "node scripts/cleanup-matches.js",
     "coaching": "node scripts/coaching-report.js",
-    "dist": "node scripts/build-installer.js"
+    "dist": "node scripts/build-installer.js",
+    "release": "node scripts/build-installer.js --publish"
   },
   "dependencies": {
     "axios": "^1.6.0",
+    "electron-updater": "^6.8.9",
     "sqlite3": "^5.0.2"
   },
   "devDependencies": {
@@ -55,7 +57,15 @@
     "asarUnpack": [
       "**/*.node"
     ],
-    "electronDist": "node_modules/electron/dist"
+    "electronDist": "node_modules/electron/dist",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "toancina",
+        "repo": "nexus-insights",
+        "releaseType": "release"
+      }
+    ]
   },
   "author": "Nexus Insights",
   "license": "UNLICENSED"

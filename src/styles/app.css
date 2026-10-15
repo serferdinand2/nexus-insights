@@ -5159,3 +5159,24 @@ body {
 .chat-send.is-stop { background: var(--error); color: #fff; }
 .chat-foot { font-size: var(--font-xs); color: var(--text-tertiary); text-align: center; }
 .chat-foot-warn { color: #fdba74; }
+
+/* ==========================================================================
+   Update button (titlebar, components/updateButton.js)
+   ========================================================================== */
+.titlebar-btn--update { position: relative; color: rgba(255, 255, 255, 0.5); }
+.titlebar-btn--update svg { transition: transform 0.4s ease; }
+.titlebar-btn--update:hover svg { transform: rotate(90deg); }
+.titlebar-btn--update.is-busy { cursor: progress; color: var(--accent-primary); }
+.titlebar-btn--update.is-busy svg { animation: updateSpin 0.9s linear infinite; }
+@keyframes updateSpin { to { transform: rotate(360deg); } }
+
+.update-dot {
+    position: absolute; top: 7px; right: 11px;
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 0 2px rgb(11, 13, 19);
+    display: none;
+}
+.titlebar-btn--update.has-update { color: var(--success); }
+.titlebar-btn--update.has-update .update-dot { display: block; }
+
