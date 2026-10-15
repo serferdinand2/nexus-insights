@@ -285,7 +285,12 @@ function initDatabase() {
         statsComputedAt INTEGER,
         -- 1 when the game ended in an early surrender (a remake). Riot's
         -- own gameEndedInEarlySurrender flag, with a duration fallback.
-        isRemake INTEGER
+        isRemake INTEGER,
+        -- Team impact (services/teamImpact.js): your score, rank of 10 and
+        -- 'MVP'/'SVP' tag. impactRank NULL = not computed yet.
+        impactScore REAL,
+        impactRank INTEGER,
+        impactTag TEXT
       )
     `);
 
@@ -438,7 +443,10 @@ function initDatabase() {
       'visionAdvantage REAL',
       'goldShare REAL',
       'statsComputedAt INTEGER',
-      'isRemake INTEGER'
+      'isRemake INTEGER',
+      'impactScore REAL',
+      'impactRank INTEGER',
+      'impactTag TEXT'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion

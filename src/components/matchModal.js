@@ -9,6 +9,7 @@
 const { getMatchById }   = require('../services/matchService');
 const { evaluateBadges } = require('./badgeEvaluator');
 const { escapeHtml }     = require('./dom');
+const { computeTeamImpact, IMPACT_AREAS } = require('../services/teamImpact');
 const {
     RUNE_ICONS,
     getChampionIcon,
@@ -32,6 +33,19 @@ function formatDiff(val) {
 function getDiffColor(val) {
     if (val === null || val === undefined) return '#8a8a9a';
     return val > 0 ? '#22c55e' : val < 0 ? '#ef4444' : '#8a8a9a';
+}
+
+/** "#2 SVP" cell; the per-area breakdown is in the hover title. */
+function renderImpactCell(impact) {
+    if (!impact) return '<td class="team-cell-center">-</td>';
+    const breakdown = IMPACT_AREAS
+        .filter(([key]) => impact.shares[key] !== null)
+        .map(([key, label]) => `${label}: ${impact.shares[key]}% of team`);
+    const title = [`Impact ${impact.score} (average share of team)`, ...breakdown].join('\n');
+    const tag = impact.tag
+        ? `<span class="impact-tag impact-tag--${impact.tag.toLowerCase()}">${impact.tag}</span>`
+        : '';
+    return `<td class="team-cell-center impact-cell" title="${escapeHtml(title)}">#${impact.rank}${tag}</td>`;
 }
 
 function renderPlayerRow(player, gameDuration) {
@@ -70,6 +84,7 @@ function renderPlayerRow(player, gameDuration) {
                 <img src="${champIcon}" class="team-champion-icon-sm" alt="${escapeHtml(player.championName)}">
                 <span class="team-player-name-sm">${escapeHtml(player.summonerName)}</span>
             </td>
+            ${renderImpactCell(player.impact)}
             <td class="team-items-cell-sm">
                 <div class="items-row-sm">${itemsTop}</div>
                 <div class="items-row-sm">${itemsBottom}</div>
@@ -106,6 +121,8 @@ function buildTeamData(match) {
             const timeline  = typeof match.timelineJson === 'string' ? JSON.parse(match.timelineJson) : match.timelineJson;
             timelineFrames  = timeline?.info?.frames || null;
         }
+
+        const impact = computeTeamImpact(participants);
 
         // Build position map for lane-opponent lookups
         const positionMap = {};
@@ -158,7 +175,8 @@ function buildTeamData(match) {
                 goldDiff15: gd15,  xpDiff15: xpd15, dmgGoldRatio,
                 totalPings,        controlWardsBought: p.visionWardsBoughtInGame || 0,
                 towerDamage:       p.damageDealtToTurrets || 0,
-                isCurrentPlayer:   p.championName === match.championName && p.teamId === match.teamId
+                isCurrentPlayer:   p.championName === match.championName && p.teamId === match.teamId,
+                impact:            impact.get(participantId) || null
             };
 
             if (p.teamId === 100) teamData.team100.push(playerData);
@@ -190,7 +208,9 @@ function createExpandedRow(match, index, badges = []) {
 
     const tableHeader = `
         <thead><tr>
-            <th>Player</th><th>Items</th><th>Runes</th><th>SP</th>
+            <th>Player</th>
+            <th class="tooltip-header" data-column-tooltip="Rank of all 10 players by average share of their own team's kills + assists, damage, gold, vision, objective and structure damage, healing and damage taken. MVP = best on the winning team, SVP = best on the losing team. Hover a value for the breakdown.">Impact</th>
+            <th>Items</th><th>Runes</th><th>SP</th>
             <th>K</th><th>D</th><th>A</th><th>KDA</th><th>CS</th><th>CS/M</th><th>LVL</th><th>DMG</th>
             <th class="tooltip-header" data-column-tooltip="Gold difference vs lane opponent at 15 minutes">GD@15</th>
             <th class="tooltip-header" data-column-tooltip="XP difference vs lane opponent at 15 minutes">XPD@15</th>

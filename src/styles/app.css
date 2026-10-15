@@ -4635,6 +4635,37 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     vertical-align: middle;
 }
 
+/* ── Team impact tags (MVP / SVP) ──────────────────────────────
+   Best player on the winning / losing team. Shown next to the
+   result in Match History and in the expanded 10-player table.
+   ──────────────────────────────────────────────────────────── */
+.impact-tag {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    vertical-align: middle;
+}
+
+.impact-tag--mvp {
+    background: rgba(var(--gold-rgb), 0.18);
+    color: var(--gold);
+}
+
+.impact-tag--svp {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-secondary);
+}
+
+.impact-cell {
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    cursor: help;
+}
+
 /* ══════════════════════════════════════════════════════════
    FILTER BAR — inline on the summoner row
    It shapes the analytics cards, Time Analytics and the Match

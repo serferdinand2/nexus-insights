@@ -1045,8 +1045,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function backfillAnalyticsInBackground() {
     try {
+        // impactRank: rows indexed before team impact existed (issue #2)
         const pending = (window.matchesData || []).filter(
-            m => m.statsComputedAt === null || m.statsComputedAt === undefined
+            m => m.statsComputedAt == null || m.impactRank == null
         );
         if (pending.length === 0) return;
 

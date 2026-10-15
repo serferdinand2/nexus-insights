@@ -3,6 +3,7 @@ const {
     getCachedRawJson, getCachedTimelineJson
 } = require('../services/matchService');
 const { RANK_COLORS } = require('./rankTiers');
+const { impactFor } = require('../services/teamImpact');
 
 // Benchmark thresholds per stat — values represent the MINIMUM needed to qualify for that tier
 // For "lower is better" stats (higherIsBetter=false), value must be AT OR BELOW the threshold
@@ -306,15 +307,33 @@ function calcLanePhase(matches) {
     };
 }
 
+/**
+ * Your team impact for one match: stored columns, or parsed from a prefetched
+ * rawJson for rows indexed before impact existed. Null when neither is there.
+ */
+function matchImpact(m) {
+    if (m.impactRank !== null && m.impactRank !== undefined) return { rank: m.impactRank, tag: m.impactTag };
+    const { raw } = getParsedData(m);
+    if (!raw) return null;
+    return impactFor(raw.info ? raw.info.participants : raw.participants, m.championName, m.teamId);
+}
+
 function calcCombat(matches) {
     if (!matches || !matches.length) return null;
     const mCount = matches.length;
     let dmgShare = [], dmgMin = [], dmgGold = [], kpArr = [];
     let shutdownsClaimed = 0, shutdownsGiven = 0, dmgTakenDeath = [], multikills = 0;
+    let impactRanks = [], impactTop = 0;
 
     matches.forEach(m => {
         const gameMin = m.gameDuration / 60;
         dmgMin.push(m.totalDamageDealtToChampions / gameMin);
+
+        const impact = matchImpact(m);
+        if (impact) {
+            impactRanks.push(impact.rank);
+            if (impact.tag) impactTop++;              // MVP or SVP: best on your team
+        }
         
         if (isPrecomputed(m)) {
             if (m.dmgShare !== null)          dmgShare.push(m.dmgShare);
@@ -376,7 +395,11 @@ function calcCombat(matches) {
         shutdownsClaimed: shutdownsClaimed / mCount,
         shutdownsGiven: shutdownsGiven / mCount,
         dmgTakenDeath: avg(dmgTakenDeath),
-        multikills: multikills / mCount
+        multikills: multikills / mCount,
+        // 0 when no match has impact yet; the cards show "--" for that
+        impactGames: impactRanks.length,
+        impactRank: avg(impactRanks),
+        mvpRate: impactRanks.length ? impactTop / impactRanks.length * 100 : 0
     };
 }
 
@@ -711,6 +734,14 @@ window.computeTabStats = function(tabName, matches, prevMatches = []) {
             cards.push(buildCard('shutdowns_lost', 'Shutdowns Given',   tabName, cur.shutdownsGiven,   v => formatNum(v, 2), 'average', true,  false, prev ? prev.shutdownsGiven   : null));
             cards.push(buildCard('dmg_taken_death', 'Dmg Taken/Death', tabName, cur.dmgTakenDeath, v => fmtInt(v), 'average', false, true, prev ? prev.dmgTakenDeath : null));
             cards.push(buildCard('multikills', 'Multikills', tabName, cur.multikills, v => formatNum(v, 2), 'average', true, true, prev ? prev.multikills : null));
+
+            // Team impact (services/teamImpact.js). No rank-tier data exists
+            // for these, so they aren't benchmarked. No trend unless both
+            // periods actually have impact values.
+            const hasImpact = cur.impactGames > 0;
+            const prevImpact = hasImpact && prev && prev.impactGames > 0 ? prev : null;
+            cards.push(buildCard('impact_rank', 'Avg Impact Rank', tabName, cur.impactRank, v => hasImpact ? '#' + formatNum(v, 1) : '--', 'average', false, false, prevImpact ? prevImpact.impactRank : null));
+            cards.push(buildCard('mvp_rate', 'MVP/SVP Rate', tabName, cur.mvpRate, v => hasImpact ? formatPct(v / 100) : '--', 'percentage', false, true, prevImpact ? prevImpact.mvpRate : null));
             break;
         }
 

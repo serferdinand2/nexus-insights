@@ -1,6 +1,7 @@
 const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
+const { computeTeamImpact } = require('./teamImpact');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
 const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
@@ -140,7 +141,8 @@ async function getMatches(limit = null) {
                 platesTaken, platesLost, soloKillDiff,
                 dmgShare, killParticipation, dmgTakenPerDeath, multikills,
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
-                enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake
+                enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
+                impactScore, impactRank, impactTag
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -449,6 +451,7 @@ const COMPUTED_STAT_COLUMNS = [
     'shutdownsClaimed', 'shutdownsGiven', 'shutdownBountyGiven',
     'enemyTeamKills', 'visionAdvantage', 'goldShare',
     'statsComputedAt', 'isRemake',
+    'impactScore', 'impactRank', 'impactTag',
 ];
 
 /**
@@ -486,12 +489,16 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
 /**
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
+ *
+ * `impactRank IS NULL` picks up rows indexed before team impact existed.
+ * It can't stay NULL after a pass: the champion + team that find "you" come
+ * from the same participant the row was synced from.
  */
 async function backfillComputedStats(onProgress) {
     const rows = await dbAll(`
         SELECT matchId, championName, teamId
         FROM matches
-        WHERE rawJson IS NOT NULL AND statsComputedAt IS NULL
+        WHERE rawJson IS NOT NULL AND (statsComputedAt IS NULL OR impactRank IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -540,7 +547,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         dmgTakenPerDeath: null, multikills: null,
         shutdownsClaimed: null, shutdownsGiven: null, shutdownBountyGiven: null,
         enemyTeamKills: null, visionAdvantage: null, goldShare: null,
-        isRemake: null
+        isRemake: null,
+        impactScore: null, impactRank: null, impactTag: null
     };
 
     try {
@@ -556,6 +564,14 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
 
         // === First Blood ===
         result.firstBlood = (me.firstBloodKill || me.firstBloodAssist) ? 1 : 0;
+
+        // === Team impact: score, rank of 10, MVP/SVP ===
+        const impact = computeTeamImpact(participants).get(myPId);
+        if (impact) {
+            result.impactScore = impact.score;
+            result.impactRank  = impact.rank;
+            result.impactTag   = impact.tag;
+        }
 
         // === Remake ===
         // Riot's flag is authoritative; the duration check catches payloads

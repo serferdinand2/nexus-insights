@@ -186,3 +186,30 @@ test('a remake does not drag averages toward zero', () => {
         'filtering the remake should reproduce the clean result exactly');
     assert.ok(kdaOf(withRemake) < kdaOf(real), 'and leaving it in should measurably drag CS/min down');
 });
+
+test('Combat impact cards: stored columns, rawJson fallback, and "--" with no data', async () => {
+    // Fallback: rows indexed before impact existed are parsed from rawJson.
+    // In the fixture "you" out-damage and out-earn every teammate → rank 1.
+    ms.clearJsonCache();
+    await ms.loadRawJson(matches.map(m => m.matchId));
+    let cards = window.computeTabStats('Combat', matches, []);
+    assert.equal(cardById(cards, 'impact_rank').value, 1);
+    assert.equal(cardById(cards, 'impact_rank').displayValue, '#1.0');
+    assert.equal(cardById(cards, 'mvp_rate').value, 100);
+
+    // Stored columns win over the blob
+    const stored = matches.map((m, i) => ({ ...m, impactRank: i === 0 ? 1 : 4, impactTag: i === 0 ? 'MVP' : null }));
+    cards = window.computeTabStats('Combat', stored, []);
+    assert.equal(cardById(cards, 'impact_rank').value, 3);
+    assert.equal(Math.round(cardById(cards, 'mvp_rate').value), 33);
+    assert.equal(cardById(cards, 'impact_rank').higherIsBetter, false);
+
+    // Nothing to go on: finite value, "--" shown, no trend against a real period
+    ms.clearJsonCache();
+    cards = window.computeTabStats('Combat', matches, stored);
+    for (const id of ['impact_rank', 'mvp_rate']) {
+        assert.equal(cardById(cards, id).displayValue, '--');
+        assert.ok(Number.isFinite(cardById(cards, id).value));
+        assert.equal(cardById(cards, id).trend, null);
+    }
+});
