@@ -364,7 +364,8 @@ async function captureLpReadings({ quiet = false } = {}) {
     let moved = false;
     for (const [queue, entry] of [['solo', leagueData.solo], ['flex', leagueData.flex]]) {
         if (!entry) continue;
-        const res = await recordLpReading(queue, entry.tier, entry.rank, entry.leaguePoints);
+        const res = await recordLpReading(queue, entry.tier, entry.rank, entry.leaguePoints,
+                                          { wins: entry.wins, losses: entry.losses });
         if (!res.changed) continue;
         moved = true;
         if (!quiet) {
@@ -1048,8 +1049,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function backfillAnalyticsInBackground() {
     try {
+        // impactRank: rows indexed before team impact existed (issue #2)
         const pending = (window.matchesData || []).filter(
-            m => m.statsComputedAt === null || m.statsComputedAt === undefined
+            m => m.statsComputedAt == null || m.impactRank == null
         );
         if (pending.length === 0) return;
 

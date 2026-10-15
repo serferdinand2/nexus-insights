@@ -110,7 +110,7 @@ src/
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
 - **Coaching tab**: Solo/Duo only. Rank header, last-game report (‹ › to step back), focus metric with hit/miss dots, area trends with sparklines, collapsed Details. See "Coaching page (rewritten 2026-10)" below.
-- **Expanded Match Rows**: clicking a match-table row expands an inline full 10-player breakdown (both teams): items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
+- **Expanded Match Rows**: clicking a match-table row expands an inline full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
 
@@ -126,7 +126,7 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 |---------|-----------|
 | **Overview** | Win Rate, Avg KDA, KP%, CS/min, Avg CS, Avg Damage, Damage/Min |
 | **Lane Phase** | CSD@15, GD@15, XPD@15, CS@10/15/20, Deaths <10m, Plates Taken/Lost, Solo Kill Diff |
-| **Combat** | Damage Share%, Damage/Min, Damage/Gold, Kill Participation, Shutdowns Claimed/Given, Multikills |
+| **Combat** | Damage Share%, Damage/Min, Damage/Gold, Kill Participation, Shutdowns Claimed/Given, Multikills, Avg Impact Rank, MVP/SVP Rate |
 | **Death Review** | Deaths/Game, Deaths <10m, Isolated Deaths, Shutdown Gold Given, Death Share% |
 | **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Objective Rate |
 | **Vision** | Vision Score, VS/Min, Wards Placed/Killed, Control Wards, Vision Advantage |
@@ -198,6 +198,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | Runes | `primaryRune`, `secondaryRuneStyle` |
 | Raw data | `rawJson` (BLOB, gzip), `timelineJson` (BLOB, gzip) |
 | Advanced | `csDiff15`, `goldDiff15`, `xpDiff15`, `firstBlood`, `dmgGoldRatio`, `isolatedDeaths`, `objectiveRate` |
+| Team impact | `impactScore`, `impactRank` (1–10, NULL = not computed yet), `impactTag` (`MVP`/`SVP`/NULL) |
 
 **Indexes**: `idx_gameCreation` (DESC), `idx_championName`
 
@@ -205,7 +206,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 - `puuid` (PK), `soloTier`, `soloRank`, `soloLP`, `flexTier`, `flexRank`, `flexLP`, `fetchedAt`
 
 ### `lp_history` table
-- `id`, `queue` (SOLO/FLEX), `date`, `tier`, `rank`, `lp`, `recorded_at`
+- `id`, `queue` (SOLO/FLEX), `date`, `tier`, `rank`, `lp`, `recorded_at`, `matchId`, `wins`, `losses` (migration 4)
 - Used by LP progression charts in the calendar panel
 
 ### `schema_version` table
@@ -344,6 +345,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | `backfillTimelines(onProgress)` | Download missing timelines |
 | `backfillAdvancedStats(onProgress)` | Recalculate advanced stats |
 | `saveLpSnapshot / seedLpSnapshot / getLpHistory` | LP history table CRUD |
+| `attachLpReadingsToMatches / getLpDeltasByMatch` | Per-game LP (rules in `services/lpAttribution.js`) |
 
 ### riotApi.js
 | Function | Purpose |
@@ -489,6 +491,50 @@ displayed, but never counted in a statistic.
 - `displayRankedStats` also excludes them: a remake is neither a win nor a loss
 - Remake rows render dimmed with a `REMAKE` tag, and the match-count badge says
   how many were excluded, so the numbers never look unexplained
+
+### Per-game LP attribution (fixed 2026-10, issue #1)
+
+Riot only reports current LP, so the tracker stores readings and a reading's
+change belongs to a game only when it covers exactly one game.
+`services/lpAttribution.js` (pure, tested) holds the rules; database.js loads
+rows and writes the links.
+
+- Readings store `wins`/`losses` from League-V4 (migration 4). The change in
+  wins + losses = games covered. 0 (refund, decay) or 2+ (missed game): not
+  credited to any game, still on the LP chart.
+- A reading links only when exactly one stored, non-remake game of that queue
+  ended between the previous reading and this one. None stored yet (Riot slow
+  to publish) → stays unlinked until the next sync. Old readings without W/L
+  use this rule alone.
+- `attachLpReadingsToMatches()` **recomputes every link** each call, so a late
+  sync can't leave a stale one. Migration 4 ran it once to repair links made by
+  the old rule (latest game in the previous 3 h), which credited back-to-back
+  games with each other's LP.
+- `recordLpReading` also records a reading when W/L moved but LP didn't (a
+  0-LP game), otherwise the next reading would look like it covered 2 games.
+- `getLpDeltasByMatch()` sums per match instead of overwriting.
+- `test/lpAttribution.test.js` includes a test against a real temporary SQLite
+  file (it stubs `services/paths` before requiring database.js).
+
+### Team impact (2026-10, issue #2)
+
+`services/teamImpact.js` (pure, tested): each player's share of their own
+team's total in 8 areas (kills+assists, damage, gold, vision, objective damage
+excl. structures, structure damage, heals on teammates, damage taken),
+averaged; an area with a team total of 0 is skipped. All 10 ranked (ties:
+damage, K+A, gold, vision, id); best winner = MVP, best loser = SVP.
+
+- Stored per match through the computed-stats pipeline (`impactScore`,
+  `impactRank`, `impactTag`). The backfill also picks rows with
+  `impactRank IS NULL`, and so does `backfillAnalyticsInBackground`, so
+  existing databases index once after updating.
+- Expanded row: Impact column (`#rank` + tag, area breakdown in the title).
+  Match row: MVP/SVP tag under the result. Combat: Avg Impact Rank (lower is
+  better) and MVP/SVP Rate. Neither is benchmarked (no rank-tier data); both
+  show "--" with no impact data and fall back to prefetched rawJson for rows
+  not indexed yet.
+- Known bias: a player who is the team's only healer gets a 100% healing share
+  even for a few hundred HP, which lifts their score a lot.
 
 ### Precomputed analytics columns
 

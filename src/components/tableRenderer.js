@@ -173,7 +173,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
             <td class="center">${match.champLevel || '?'}</td>
             <td class="center">${durationMins}m</td>
             <td class="center">
-                <span class="table-outcome-badge ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</span>
+                <span class="table-outcome-badge ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</span>${renderImpactTag(match)}
             </td>
             <td class="center">${renderLpDelta(match.matchId)}</td>
             <td class="center">${match.kills}</td>
@@ -191,6 +191,17 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
             <td class="center" style="color:#3b82f6;">${match.teamTowers || 0}</td>
         </tr>
     `;
+}
+
+/**
+ * MVP / SVP next to the result: you were the highest-impact player on your
+ * team (services/teamImpact.js). Stored per match, so no rawJson is needed.
+ */
+function renderImpactTag(match) {
+    if (match.impactTag !== 'MVP' && match.impactTag !== 'SVP') return '';
+    const side = match.impactTag === 'MVP' ? 'winning' : 'losing';
+    const title = `Best player on the ${side} team by impact (#${match.impactRank} of 10)`;
+    return `<span class="impact-tag impact-tag--${match.impactTag.toLowerCase()}" title="${title}">${match.impactTag}</span>`;
 }
 
 /**
