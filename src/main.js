@@ -3,7 +3,7 @@ const path = require('path');
 const fs   = require('fs');
 
 const { initDatabase } = require('./services/database');
-const { loadConfig, setConfigValue } = require('./services/config');
+const { loadConfig, setConfigValue, hasSavedValue } = require('./services/config');
 const { createUpdater } = require('./services/updater');
 
 const IS_MAC = process.platform === 'darwin';
@@ -176,8 +176,13 @@ function applyLoginItemSetting(enabled) {
       return;
     }
 
-    fs.writeFileSync(shim, startupShimSource(app.getAppPath()), 'latin1');
-    console.log('Startup shim written:', shim);
+    const source = startupShimSource(app.getAppPath());
+    const current = fs.existsSync(shim) ? fs.readFileSync(shim, 'latin1') : null;
+    if (current === source) return;
+    fs.writeFileSync(shim, source, 'latin1');
+    // Say when it moves: from source it points at whichever folder ran last (#36)
+    console.log(current === null ? 'Startup shim written:' : 'Startup shim now points at this folder:',
+                shim, '->', app.getAppPath());
   } catch (err) {
     console.warn('Could not update login item settings:', err.message);
   }
@@ -418,6 +423,12 @@ app.whenReady().then(() => {
                       (IS_MAC && login.wasOpenedAtLogin);
   mainWindow = createWindow({ startHidden });
   createTray();
+
+  // From source, "Start with Windows" defaults to off: otherwise every clone
+  // run once with npm start would add itself to Windows startup (#36). Saving
+  // the choice also makes the Settings toggle show it. A choice saved earlier
+  // (on or off) is kept; installed builds keep the "on" default.
+  if (!app.isPackaged && !hasSavedValue('startOnLogin')) setConfigValue('startOnLogin', false);
 
   // Keep the OS in step with the saved preference on every launch — covers a
   // config edited by hand, and a first run where the default has never been

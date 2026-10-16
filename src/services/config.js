@@ -80,6 +80,20 @@ function getConfigValue(key) {
 }
 
 // Set a specific config value
+/**
+ * Has `key` been saved to config.json (as opposed to coming from the
+ * defaults)? Reads the file itself, since loadConfig() merges the defaults in.
+ */
+function hasSavedValue(key) {
+    try {
+        if (!fs.existsSync(configPath)) return false;
+        const saved = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        return saved !== null && typeof saved === 'object' && Object.prototype.hasOwnProperty.call(saved, key);
+    } catch {
+        return false;
+    }
+}
+
 function setConfigValue(key, value) {
     const config = loadConfig();
     config[key] = value;
@@ -92,6 +106,7 @@ module.exports = {
     isConfigValid,
     getConfigValue,
     setConfigValue,
+    hasSavedValue,
     configPath,
     userDataPath
 };
