@@ -273,7 +273,7 @@ async function syncMatches(puuid, onProgress) {
     let startTime;
     if (latestMatch && latestMatch.latestTime) {
         // FORWARD-ONLY SYNC: fetch matches AFTER the most recent one
-        // Both gameCreation and Riot API startTime use milliseconds (13 digits)
+        // gameCreation is in milliseconds; getMatchIds converts to seconds for Riot
         startTime = latestMatch.latestTime + 1;
         console.log(`Forward sync: fetching matches after ${new Date(latestMatch.latestTime).toISOString()}`);
         console.log(`DEBUG: Latest match gameCreation (ms): ${latestMatch.latestTime}`);

@@ -242,7 +242,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
   table stays. If ranks are shown later, fetch them when a game is opened
 - **Queue filter**: Only stores 420 (Solo), 440 (Flex), 400 (Normal Draft), 430 (Blind), 480 (Swiftplay), 490 (Quickplay), 700 (Clash)
 - **Rate limiting**: Sequential processing, 150ms delay between every API call
-- **Timestamp format**: Both `gameCreation` and Riot API `startTime` use **milliseconds** (13 digits). Passing seconds (10 digits) causes Riot to return all matches (treats it as ms epoch ≈ Jan 1970)
+- **Timestamp format**: the app stores **milliseconds** (`gameCreation`, 13 digits) everywhere, and `riotApi.getMatchIds()` converts to **seconds** (`Math.floor(ms / 1000)`) for Match-V5's `startTime`, which Riot defines in seconds. Pass `getMatchIds` milliseconds; don't remove the conversion (#41: this note used to say Riot takes milliseconds)
 
 ### JSON Compression
 - `compression.js` gzips `rawJson`/`timelineJson` on **write**, and `decompressJson()` transparently handles both gzip Buffers and legacy uncompressed TEXT
