@@ -225,8 +225,16 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
   first (`services/syncOrder.js`, tested), and a game that fails for a reason
   that may pass (network, 401/403, 429/5xx after retries, SQLite write) stops
   the sync, so no newer game is stored past a missing one. 404s and bad match
-  data are skipped, since stopping on them would block every sync. Games lost
-  by syncs before this fix need a "Fill gaps" action (not built yet)
+  data are skipped, since stopping on them would block every sync.
+- **Fill gaps** (issue #18, Settings): `fillGaps(puuid, onProgress, { since })`
+  lists every game since season start (or `since`) in the allowed queues,
+  calling `getMatchIds` with `existingIds = null` so it doesn't stop at the
+  first stored game (that early stop is why a normal sync never fills old
+  holes), and stores the missing ones through `storeGames`, the per-game
+  loop it shares with `syncMatches` (oldest first, same stop rule). Runs as
+  `handleSync({ fillGaps: true })`, so the backfills, rank fetch, LP capture
+  and reload after it are the normal sync's. Progress: `'listing'` with the
+  count, then the usual per-game progress.
 - **Queue filter**: Only stores 420 (Solo), 440 (Flex), 400 (Normal Draft), 430 (Blind), 480 (Swiftplay), 490 (Quickplay), 700 (Clash)
 - **Rate limiting**: Sequential processing, 150ms delay between every API call
 - **Timestamp format**: Both `gameCreation` and Riot API `startTime` use **milliseconds** (13 digits). Passing seconds (10 digits) causes Riot to return all matches (treats it as ms epoch ≈ Jan 1970)

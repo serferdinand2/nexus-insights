@@ -152,6 +152,13 @@ function openSettings() {
 }
 
 window.hideSetupModal = hideSetupModal;
+
+/** Settings → "Fill gaps" (#18): runs like a sync, with its progress on Analytics. */
+window.fillGapsFromSettings = function () {
+    hideSetupModal();
+    window.switchTopTab('analytics');
+    window.handleSync({ fillGaps: true });
+};
 window.openSettings   = openSettings;
 
 /**

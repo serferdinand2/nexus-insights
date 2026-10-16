@@ -307,6 +307,19 @@ async function syncMatches(puuid, onProgress) {
         return { newMatches: 0, skipped, total: allMatchIds.length };
     }
 
+    const { newMatches, queueSkipped, newMatchIds } = await storeGames(puuid, matchIds, onProgress, skipped);
+    return { newMatches, skipped: skipped + queueSkipped, total: matchIds.length, newMatchIds };
+}
+
+/**
+ * Store these games through the one per-game path: oldest first (the caller
+ * sorts), the #13 stop rule, computed stats on the way in. syncMatches and
+ * fillGaps both use it, so the two can't drift apart.
+ *
+ * @param {string[]} matchIds  not yet stored, oldest first
+ * @param {number}   skipped   already-stored count, for the progress readout
+ */
+async function storeGames(puuid, matchIds, onProgress, skipped = 0) {
     let newMatches = 0;
     let queueSkipped = 0;
     let processed = 0;
@@ -449,7 +462,36 @@ async function syncMatches(puuid, onProgress) {
             alreadyInDB: skipped
         });
     }
-    return { newMatches, skipped: skipped + queueSkipped, total: matchIds.length, newMatchIds };
+    return { newMatches, queueSkipped, newMatchIds };
+}
+
+/**
+ * Fill gaps (#18): store every game Riot lists since `since` (season start
+ * by default) that isn't stored yet.
+ *
+ * A normal sync can't do this: it lists only games after the newest stored
+ * one, and getMatchIds stops at the first stored id. Holes left by syncs
+ * from before #13 therefore stay forever. This lists everything (one call
+ * per 100 games per queue), then stores the missing ones oldest first
+ * through storeGames, so the #13 stop rule applies here too.
+ *
+ * Progress: onProgress(0, 0, 'listing', { listed }) while listing, then the
+ * same calls as a sync.
+ */
+async function fillGaps(puuid, onProgress, { since = RANKED_SEASON_START } = {}) {
+    const existingIds = new Set((await dbAll('SELECT matchId FROM matches')).map(r => r.matchId));
+    const listed = new Set();
+    for (const queueId of ALLOWED_QUEUES) {
+        for (const id of await getMatchIds(puuid, since, queueId, null)) listed.add(id);
+        if (onProgress) onProgress(0, 0, 'listing', { listed: listed.size });
+    }
+    const missing = oldestFirst(listed).filter(id => !existingIds.has(id));
+    if (!missing.length) {
+        if (onProgress) onProgress(0, 0, 'complete', { new: 0, queueFiltered: 0, alreadyInDB: listed.size });
+        return { listed: listed.size, missing: 0, newMatches: 0, newMatchIds: [] };
+    }
+    const result = await storeGames(puuid, missing, onProgress, listed.size - missing.length);
+    return { listed: listed.size, missing: missing.length, newMatches: result.newMatches, newMatchIds: result.newMatchIds };
 }
 
 // Compute advanced stats given the participant index and parsed data
@@ -1039,7 +1081,7 @@ const {
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 } = require('./database');
 
-module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
+module.exports = { syncMatches, fillGaps, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,

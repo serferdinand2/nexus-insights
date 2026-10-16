@@ -493,6 +493,10 @@
                         <span class="setup-datadir-label">Export the matches your current filters show, one row per game, for a spreadsheet</span>
                         <button type="button" class="setup-datadir-btn" onclick="exportMatchesCsv()">Export matches to CSV</button>
                     </div>
+                    <div class="setup-datadir">
+                        <span class="setup-datadir-label">Missing games? A sync that was interrupted in the past can have skipped some. This fetches every game since the season started that isn't stored yet.</span>
+                        <button type="button" class="setup-datadir-btn" onclick="fillGapsFromSettings()">Fill gaps</button>
+                    </div>
                     <!-- Riot's developer policy asks public apps to carry this notice;
                          it lives here now instead of a footer on every page. -->
                     <p class="setup-legal">Nexus Insights isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc. Match data from the <a href="#" onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">Riot Games API</a>.</p>
