@@ -149,9 +149,9 @@ from `computeTabStats`. Full description: "Coaching page (rewritten 2026-10)" in
 
 ### LP Progression Charts
 
-- Canvas-based line charts for Solo/Duo and Flex LP over time
-- Uses `lp_history` table — seeded from hardcoded historical snapshots (see `calendarPanel.js`)
-- LP is normalised to an absolute scale (e.g. Platinum IV 86LP → numeric value) for continuous charting
+- Canvas line charts for Solo/Duo and Flex, **one point per ranked game** (newest 40): filled = measured LP, hollow = estimated. Hover for the game, click to open it in Match History. See "LP history and estimates" in Notes.
+- Built from `lp_history` readings plus hand-entered **checkpoints** (no hard-coded history any more)
+- LP is normalised to an absolute scale (Iron IV 0 = 0, 400 per tier, Master+ = 2800 + LP) for continuous charting
 
 ### Match History
 
@@ -352,7 +352,8 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | `computeAdvancedStatsForMatch()` | CSD@15, GD@15, isolated deaths, etc. |
 | `backfillTimelines(onProgress)` | Download missing timelines |
 | `backfillAdvancedStats(onProgress)` | Recalculate advanced stats |
-| `saveLpSnapshot / seedLpSnapshot / getLpHistory` | LP history table CRUD |
+| `saveLpSnapshot / getLpHistory` | LP history table CRUD |
+| `addLpCheckpoint / deleteLpCheckpoint / getLpCheckpoints` | Hand-entered LP checkpoints (`manual = 1`) |
 | `attachLpReadingsToMatches / getLpDeltasByMatch` | Per-game LP (rules in `services/lpAttribution.js`) |
 
 ### riotApi.js
@@ -371,10 +372,13 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 ### Distribution (shareable installer) — 2026-10
 
 - **Build with `npm run dist` / `Build Installer.bat`, never plain `npm run build`.**
-  `scripts/build-installer.js` temporarily blanks `SOLO_LP_SEED` (the owner's
-  hardcoded LP history in `calendarPanel.js`) and the Gold I flex starter point,
-  runs electron-builder, then restores the file. It refuses to build if it can't
-  find the seed. Plain `build` would ship the owner's rank history.
+  The owner's LP history used to be hard-coded (`SOLO_LP_SEED` in
+  `calendarPanel.js`) and stripped for every build. It now lives in the
+  database as checkpoints (#5), so nothing is stripped; `build-installer.js`
+  refuses to build if dated LP snapshots, `SOLO_LP_SEED` or `seedLpSnapshot(`
+  show up in that file again, or if an old `calendarPanel.js.build-backup`
+  (from an interrupted build of the old script; it holds the seed) is lying
+  around.
 - Build config: `npmRebuild: false` (sqlite3 in node_modules is already built for
   this Electron; rebuilding needs Python + MSVC), `electronDist` = the local
   Electron, `asarUnpack` `**/*.node`, NSIS `include: installer/installer.nsh`.
@@ -592,6 +596,43 @@ rows and writes the links.
 - `test/lpAttribution.test.js` includes a test against a real temporary SQLite
   file (it stubs `services/paths` before requiring database.js).
 
+### LP history and estimates (2026-10, issue #5)
+
+- **No hard-coded history.** `SOLO_LP_SEED` and the "Gold I 78" Flex starter
+  are gone from `calendarPanel.js`. They used to be written into *every*
+  database the app ran against from source, so contributors got the owner's
+  rank history. Migration 5 adds `lp_history.manual` and marks rows that look
+  like those seeds (noon UTC exactly, no wins/losses) as checkpoints, so
+  anyone can delete them from the LP card's Checkpoints popover
+  (`components/lpCheckpoints.js`).
+- **Checkpoints:** `addLpCheckpoint(queue, tier, rank, lp, date)` stores a
+  reading at noon UTC of that date with `manual = 1` (validated: tier,
+  division I–IV, LP 0–99 below Master, YYYY-MM-DD). `deleteLpCheckpoint` only
+  deletes manual rows. Both re-run `attachLpReadingsToMatches`.
+- **Estimates** (`services/lpEstimate.js`, pure, tested): every ranked game
+  gets a delta: measured if there's a reading, 0 for a remake, otherwise your
+  own average gain/loss over your last 20 measured wins/losses (once you have
+  5 of each), else +22/−20. Absolute LP after each game: walk back from the
+  first reading, forward from the last, and between two readings shift the
+  estimates evenly so they land exactly on the later one (running-total
+  rounding, so no game soaks up the rounding error). If that shift would be
+  more than 12 LP per game the two readings can't both be right, so the
+  estimates keep their usual values and walk back from the later reading.
+- `window.refreshLpEstimates()` (calendarPanel.js) loads readings + real
+  deltas and sets `window.lpEstimates = { byMatch, series, typical }`.
+  loadMatchHistory calls it before the first render; `renderLpCharts` calls
+  it every time, so anything that changes readings just calls renderLpCharts.
+- **Match History LP column:** measured deltas as before; estimates as `~+22`
+  (muted, italic, with a tooltip). Coaching and chat still use measured
+  deltas only (`window.lpDeltas`).
+- **Under each chart:** net LP over the games the filters show (`~` when it
+  includes estimates) and wins to the next division at your average gain
+  (`nextDivision`; none in Master+).
+- `window.openMatchInHistory(matchId)` switches to Match History, loads all
+  rows if needed, and expands that game (toast if the filters hide it).
+- `getLpReadings` deliberately doesn't select `manual`: the renderer can read
+  readings before the main process has run migration 5.
+
 ### Team impact (2026-10, issue #2)
 
 `services/teamImpact.js` (pure, tested): each player's share of their own
@@ -745,7 +786,7 @@ writes it into the app as `resources/app-update.yml` on every build).
 - Tests: `test/updater.test.js` (fake autoUpdater).
 
 **Releasing:** `Publish Update.bat` / `npm run release` → bumps the patch
-version (`--version X.Y.Z` to override), strips the LP seed, builds, uploads
+version (`--version X.Y.Z` to override), checks for hard-coded LP history, builds, uploads
 `Nexus Insights Setup X.exe` + `.blockmap` + `latest.yml` to release `vX`
 (`releaseType: release`, not draft — drafts are invisible to the updater),
 then `git add -A`, commits "Release vX" and pushes. On failure the version

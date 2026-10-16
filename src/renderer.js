@@ -24,6 +24,7 @@ window.require('./components/statHistory');   // registers toggleStatHistory, sy
 window.require('./components/matchModal');    // registers toggleRowExpand (expanded 10-player rows)
 window.require('./components/syncPanel');     // registers handleSync
 window.require('./components/calendarPanel'); // registers initCalendar, renderLpCharts, calculateTimeInsights, toggleCalPicker
+window.require('./components/lpCheckpoints');  // the Checkpoints popover on the LP cards
 window.require('./components/filtersPanel'); // registers applyFilters, toggleAllFilters, clearGameModeFilters
 window.require('./components/coachingPanel'); // registers renderCoachingPanel
 window.require('./components/windowControls'); // registers initWindowControls
@@ -772,6 +773,12 @@ window.loadMatchHistory = async function (skipRankFetch = false) {
 
         window.matchesData = matches;
         window.lpDeltas    = lpDeltas;
+
+        // LP for every ranked game, estimated where there's no reading (#5).
+        // Before the first render, so the LP column has it from the start.
+        if (typeof window.refreshLpEstimates === 'function') {
+            await window.refreshLpEstimates().catch(e => console.warn('LP estimates unavailable:', e.message));
+        }
 
         if (activeQueueFilters.size === 0) initializeFilters();
 

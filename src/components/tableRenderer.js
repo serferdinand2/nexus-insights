@@ -215,6 +215,12 @@ function renderImpactTag(match) {
 function renderLpDelta(matchId) {
     const delta = window.lpDeltas ? window.lpDeltas[matchId] : undefined;
     if (delta === undefined || delta === null) {
+        // No reading for this game: show the estimate (#5), marked with ~
+        const est = window.lpEstimates && window.lpEstimates.byMatch ? window.lpEstimates.byMatch[matchId] : null;
+        if (est && est.estimated) {
+            const s = est.delta > 0 ? '+' : '';
+            return `<span class="lp-delta lp-delta--estimated" title="Estimate: no LP reading for this game. Based on your usual LP per win/loss, fitted between known readings and checkpoints.">~${s}${est.delta}</span>`;
+        }
         return '<span class="lp-delta lp-delta--unknown" title="LP tracking only covers games played with Nexus Insights (and the League client) open — Riot doesn\'t expose LP history, so older games can\'t be backfilled.">—</span>';
     }
     const cls  = delta > 0 ? 'lp-delta--gain' : (delta < 0 ? 'lp-delta--loss' : 'lp-delta--flat');
