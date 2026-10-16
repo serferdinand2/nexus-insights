@@ -8,7 +8,7 @@ const { teammatesOf } = require('./teammates');
 const { purchasesFromTimeline, encodePurchases } = require('./itemBuild');
 const { deathsFromTimeline, encodeDeaths } = require('./deathMap');
 const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
-const { oldestFirst, shouldStopSync } = require('./syncOrder');
+const { oldestFirst, shouldStopSync, seasonStart } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
 const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
@@ -21,8 +21,6 @@ const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
 // A game shorter than this is treated as a remake if Riot didn't flag it.
 const REMAKE_MAX_SECONDS = 300; // 5 minutes
 
-// Season start timestamp (Jan 1, 2026 00:00:00 UTC) — milliseconds for Riot API
-const RANKED_SEASON_START = new Date('2026-01-01T00:00:00Z').getTime();
 
 // Promisify database methods
 function dbGet(sql, params) {
@@ -281,8 +279,8 @@ async function syncMatches(puuid, onProgress) {
         console.log(`DEBUG: Forward start time (ISO): ${new Date(startTime).toISOString()}`);
     } else {
         // First sync: fetch all matches since season start
-        startTime = RANKED_SEASON_START;
-        console.log('First sync: fetching ALL matches since Jan 1, 2026...');
+        startTime = seasonStart();
+        console.log(`First sync: fetching ALL matches since ${new Date(startTime).toISOString().slice(0, 10)}...`);
     }
 
     // Fetch match IDs per allowed queue type to avoid fetching unwanted queues (ARAM, Arena, etc.)
@@ -481,7 +479,7 @@ async function storeGames(puuid, matchIds, onProgress, skipped = 0) {
  * Progress: onProgress(0, 0, 'listing', { listed }) while listing, then the
  * same calls as a sync.
  */
-async function fillGaps(puuid, onProgress, { since = RANKED_SEASON_START } = {}) {
+async function fillGaps(puuid, onProgress, { since = seasonStart() } = {}) {
     const existingIds = new Set((await dbAll('SELECT matchId FROM matches')).map(r => r.matchId));
     const listed = new Set();
     for (const queueId of ALLOWED_QUEUES) {

@@ -19,13 +19,13 @@ const chatTools          = require('./chatTools');
 const { runAgent, buildSystemPrompt, stripThink, trimHistory } = require('./chatAgent');
 const { renderMarkdown } = require('./markdown');
 const { escapeHtml }     = require('./dom');
+const { seasonStart }    = require('../services/syncOrder');
 const statHistory        = require('./statHistory');
 const CoachingEngine     = require('./coachingEngine');
 
 const PREFERRED_MODEL = 'qwen3:8b';
 const MODEL_KEY       = 'nexus.chatModel';
 const THINK_KEY       = 'nexus.chatThink';
-const SEASON_START    = new Date('2026-01-01T00:00:00Z').getTime();
 
 // num_ctx: Ollama's default context is small and silently truncates the
 // START of the conversation — i.e. the system prompt and tool rules — once
@@ -205,7 +205,7 @@ function toolContext() {
         getLpReadings,
         absoluteLp,
         lpDeltas: window.lpDeltas || {},
-        seasonStart: SEASON_START,
+        seasonStart: seasonStart(),
         now: () => new Date(),
     };
 }
