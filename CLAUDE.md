@@ -903,8 +903,11 @@ writes it into the app as `resources/app-update.yml` on every build).
 version (`--version X.Y.Z` to override), checks for hard-coded LP history, builds, uploads
 `Nexus Insights Setup X.exe` + `.blockmap` + `latest.yml` to release `vX`
 (`releaseType: release`, not draft — drafts are invisible to the updater),
-then `git add -A`, commits "Release vX" and pushes. On failure the version
-bump is reverted. `build-installer.js` first calls the GitHub API with the token and stops with a
+then commits only `package.json` + `package-lock.json` as "Release vX" and
+pushes. On failure the version bump is reverted. **It refuses to start**
+unless you're on `main`, with no uncommitted changes, and level with
+`origin/main` (`scripts/releaseChecks.js`, tested, #42): v1.0.4 was once
+published from a feature branch and main kept the old version. `build-installer.js` first calls the GitHub API with the token and stops with a
 clear message on 401. Token: `GH_TOKEN` env or
 `%APPDATA%\nexus-insights\github-token.txt` (fine-grained, this repo only,
 Contents read/write). The installer is unsigned: SmartScreen warns on first

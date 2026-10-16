@@ -30,8 +30,10 @@
  *   --publish   RELEASE AN UPDATE (npm run release / "Publish Update.bat"),
  *               Windows only for now (see the check below):
  *               bump the patch version (1.0.3 -> 1.0.4), build, upload the
- *               installer + latest.yml to a GitHub Release, then commit and
- *               push. Installed copies pick it up from the ⟳ button.
+ *               installer + latest.yml to a GitHub Release, then commit the
+ *               version bump and push. Only from a clean main that matches
+ *               GitHub (scripts/releaseChecks.js). Installed copies pick it
+ *               up from the ⟳ button.
  *               Needs a GitHub token: GH_TOKEN env var, or the token pasted
  *               into %APPDATA%\nexus-insights\github-token.txt (outside the
  *               repo, so it can never be committed).
@@ -41,6 +43,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { releaseProblems } = require('./releaseChecks');
 
 const ROOT    = path.join(__dirname, '..');
 const DRY_RUN = process.argv.includes('--dry-run');
@@ -144,7 +147,30 @@ if (PUBLISH && process.platform !== 'win32') {
          `  To share a ${TARGET.os} copy, run "npm run dist" and send the file it makes.`);
 }
 
+/** Branch, uncommitted changes, and how this checkout compares with origin/main. */
+function gitState() {
+    const out = (...args) => {
+        const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+        if (r.status !== 0) fail(`git ${args.join(' ')} failed: ${(r.stderr || '').trim()}`);
+        return r.stdout.trim();
+    };
+    out('fetch', '--quiet', 'origin', 'main');
+    return {
+        branch: out('rev-parse', '--abbrev-ref', 'HEAD'),
+        dirty:  out('status', '--porcelain') !== '',
+        behind: Number(out('rev-list', '--count', 'HEAD..origin/main')),
+        ahead:  Number(out('rev-list', '--count', 'origin/main..HEAD')),
+    };
+}
+
 if (PUBLISH) {
+    // Before anything changes: the release commit has to land on an
+    // up-to-date main with nothing else in it (#42).
+    const problems = releaseProblems(gitState());
+    if (problems.length) {
+        fail('Not publishing, nothing was changed:\n' + problems.map(p => '  - ' + p).join('\n'));
+    }
+
     const token = readToken();
     if (!token && !DRY_RUN) {
         fail('No GitHub token found, so the release can\'t be uploaded.\n' +
@@ -305,10 +331,13 @@ if (PUBLISH) {
         console.log(`  NOTE: release is live, but its description couldn't be written: ${err.message}`);
     }
 
-    // Record the release in git so the repo matches what was shipped.
-    // .gitignore keeps the database, dist\ and secrets out.
+    // Record the release in git so the repo matches what was shipped: only
+    // the version bump. The checks above made sure this is a clean, current
+    // main, so the commit can't sweep anything else in (#42).
     const git = (...args) => spawnSync('git', args, { cwd: ROOT, stdio: 'inherit' }).status === 0;
-    const committed = git('add', '-A') && git('commit', '-m', `Release v${pkg.version}`);
+    const VERSION_FILES = ['package.json', 'package-lock.json'];
+    const committed = git('add', '--', ...VERSION_FILES) &&
+                      git('commit', '-m', `Release v${pkg.version}`, '--', ...VERSION_FILES);
     const pushed = committed && git('push');
 
     console.log('\n  =========================================================');
