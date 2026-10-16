@@ -4,6 +4,7 @@ const { compressJson, decompressJson, decompressJsonAsync } = require('./compres
 const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
 const { computeLaneGaps } = require('./laneGaps');
+const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
@@ -468,6 +469,8 @@ const COMPUTED_STAT_COLUMNS = [
     'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
     'laneGaps',
+    // Was a legacy column; recomputed since the dead/alive rule was fixed
+    'objectiveRate',
 ];
 
 /**
@@ -478,7 +481,7 @@ const COMPUTED_STAT_COLUMNS = [
  */
 const LEGACY_STAT_COLUMNS = [
     'csDiff15', 'goldDiff15', 'xpDiff15', 'firstBlood', 'dmgGoldRatio',
-    'isolatedDeaths', 'objectiveRate',
+    'isolatedDeaths',
 ];
 
 /**
@@ -659,13 +662,9 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         result.multikills = n(me.doubleKills) + n(me.tripleKills) + n(me.quadraKills) + n(me.pentaKills);
 
         if (me.challenges) {
-            result.platesTaken = n(me.challenges.turretPlatesTaken);
             result.soloKillDiff = n(me.challenges.soloKills)
                 - n(laneOpponent?.challenges?.soloKills);
             result.visionAdvantage = round3(n(me.challenges.visionScoreAdvantageLaneOpponent));
-        }
-        if (laneOpponent?.challenges) {
-            result.platesLost = n(laneOpponent.challenges.turretPlatesTaken);
         }
 
         // Parse timeline if available
@@ -789,47 +788,26 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         }
         result.isolatedDeaths = isolatedCount;
 
-        // === Objective Rate ===
-        // % of objectives (drakes, barons, grubs) your team secured while you were alive
-        const teamObjEvents = allEvents.filter(e =>
-            e.type === 'ELITE_MONSTER_KILL' &&
-            myTeamPIds.concat([myPId]).includes(e.killerId)
-        );
+        // === Plates (before 14:00), yours and your lane opponent's ===
+        // From the timeline: challenges.turretPlatesTaken also counted the
+        // plate events Riot keeps sending after plates fall off.
+        result.platesTaken = platesTakenBy(allEvents, myPId);
+        if (laneOpponent) {
+            result.platesLost = platesTakenBy(allEvents,
+                laneOpponent.participantId || (participants.indexOf(laneOpponent) + 1));
+        }
 
+        // === Objective Rate ===
+        // % of your team's epic monsters (dragons, Baron, Herald, grubs,
+        // Atakhan) taken while you were alive. Dead = from a death until the
+        // respawn timer for your level and the game time ran out.
+        const myTeamIds = new Set(myTeamPIds.concat([myPId]));
+        const teamObjEvents = allEvents.filter(e => e.type === 'ELITE_MONSTER_KILL' &&
+            (e.killerTeamId != null ? e.killerTeamId === me.teamId : myTeamIds.has(e.killerId)));
         if (teamObjEvents.length > 0) {
-            // Check if player was alive at each objective kill
-            const myDeathTimestamps = myDeaths.map(d => d.timestamp);
-            // Build alive periods: start=0, die, respawn (~20-50s based on level, use next frame alive)
-            let aliveCount = 0;
-            for (const obj of teamObjEvents) {
-                // Simple check: was the player's most recent death before this event,
-                // and enough time has passed to respawn?
-                const recentDeath = myDeathTimestamps.filter(t => t < obj.timestamp).pop();
-                if (!recentDeath) {
-                    // Never died before this objective
-                    aliveCount++;
-                } else {
-                    // Check if respawned: at least 15-60s based on game time
-                    // Use frame data to check if player has moved since death
-                    const frameIdx = Math.min(Math.floor(obj.timestamp / 60000), frames.length - 1);
-                    const frame = frames[frameIdx];
-                    if (frame && frame.participantFrames && frame.participantFrames[myPId]) {
-                        const pos = frame.participantFrames[myPId].position;
-                        // If player position is not in fountain (roughly), they're alive
-                        if (pos) {
-                            const inFountain = (me.teamId === 100)
-                                ? (pos.x < 1500 && pos.y < 1500)
-                                : (pos.x > 13500 && pos.y > 13500);
-                            // If death was very recent (within 30s) and in fountain, probably dead
-                            if (obj.timestamp - recentDeath < 30000 && inFountain) {
-                                continue; // was dead
-                            }
-                            aliveCount++;
-                        }
-                    }
-                }
-            }
-            result.objectiveRate = parseFloat(((aliveCount / teamObjEvents.length) * 100).toFixed(1));
+            const dead = deadWindows(allEvents, frames, myPId);
+            const alive = teamObjEvents.filter(e => !isDeadAt(dead, e.timestamp)).length;
+            result.objectiveRate = parseFloat(((alive / teamObjEvents.length) * 100).toFixed(1));
         }
 
     } catch (e) {

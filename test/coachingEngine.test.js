@@ -119,13 +119,13 @@ test('jungle-relevant lane stats get jungle-specific targets, and solo kills ski
     const objRate = jungle.allInputs.find(m => m.id === 'objectiveRate');
     const solo    = jungle.allInputs.find(m => m.id === 'soloKillDiff');
     const gold    = jungle.allInputs.find(m => m.id === 'goldDiff15');
-    assert.strictEqual(objRate.target, 55, 'jungle has the highest objective-presence bar');
+    assert.strictEqual(objRate.target, 100, 'objective presence: not dead for any of the team objectives');
     assert.strictEqual(solo.target, 0.15, 'jungle solo-kill target reflects ganks, not lane duels');
     assert.strictEqual(gold.target, 0, 'jungle gold@15 target is parity with the enemy jungler');
 
     const top = Engine.analyse(Array.from({ length: 40 }, () => game({ teamPosition: 'TOP' })));
     const topObjRate = top.allInputs.find(m => m.id === 'objectiveRate');
-    assert.ok(topObjRate.target < objRate.target, 'top lane has a lower objective-presence bar than jungle');
+    assert.strictEqual(topObjRate.target, 100, 'the same bar in every role since the dead/alive rule was fixed');
 
     const support = Engine.analyse(Array.from({ length: 40 }, () =>
         game({ teamPosition: 'UTILITY', championName: 'Nautilus' })));

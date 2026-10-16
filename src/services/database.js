@@ -56,6 +56,26 @@ async function runMigrations() {
   await migrateLpResolution();
   await migrateLpGameCounts();
   await migrateLpCheckpoints();
+  await migrateRecomputePlatesAndObjectiveRate();
+}
+
+/**
+ * Migration 6 — plates and objective rate were computed wrong (platesTaken
+ * from Riot's counter, which includes plate events after 14:00; objectiveRate
+ * from a dead/alive check that almost never said "dead"). Clearing the
+ * computed-stats stamp makes the background backfill recompute every game
+ * with the fixed rules (services/timelineRules.js). Until it reaches a game,
+ * the analytics tabs fall back to reading its blobs.
+ */
+async function migrateRecomputePlatesAndObjectiveRate() {
+  const done = await dbGetAsync('SELECT version FROM schema_version WHERE version = 6');
+  if (done) return;
+  const cols = (await dbAllAsync('PRAGMA table_info(matches)')).map(c => c.name);
+  if (cols.includes('statsComputedAt')) {
+    await dbRunAsync('UPDATE matches SET statsComputedAt = NULL');
+  }
+  await dbRunAsync('INSERT INTO schema_version (version, applied_at) VALUES (6, ?)', [Date.now()]);
+  console.log('Migration 6 complete — plates and objective rate will be recomputed.');
 }
 
 /**

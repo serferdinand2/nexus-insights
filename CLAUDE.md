@@ -129,10 +129,10 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 | **Lane Phase** | CSD@15, GD@15, XPD@15, CS@10/15/20, Deaths <10m, Plates Taken/Lost, Solo Kill Diff; chart of the gold/XP gap per minute 0–20 |
 | **Combat** | Damage Share%, Damage/Min, Damage/Gold, Kill Participation, Shutdowns Claimed/Given, Multikills, Avg Impact Rank, MVP/SVP Rate |
 | **Death Review** | Deaths/Game, Deaths <10m, Isolated Deaths, Shutdown Gold Given, Death Share%, Avg First Death |
-| **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Objective Rate, Objective DMG/Min, Turret DMG/Min |
+| **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Alive for Objectives, Objective DMG/Min, Turret DMG/Min |
 | **Vision** | Vision Score, VS/Min, Wards Placed/Killed, Control Wards, Vision Advantage |
 | **Economy** | Gold/Game, Gold/Min, CS/Game, CS/Min, Gold Share% |
-| **Macro** | Avg Game Length, First Blood Rate, Objective Rate, Dragon/Baron Control%, Short/Long game WR |
+| **Macro** | Avg Game Length, First Blood Rate, Alive for Objectives, Dragon/Baron Control%, Short/Long game WR |
 | **Consistency** | KDA Consistency%, KDA Std Dev, Overall WR, Last 10 WR, Best Win/Worst Loss Streak, Current Streak |
 
 ### Coaching Tab
@@ -245,7 +245,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 | First Blood | Participated in first kill |
 | Dmg/Gold Ratio | Total damage / total gold earned |
 | Isolated Deaths | Deaths without nearby teammates (1500 units) or objectives |
-| Objective Rate | % of team objectives secured while alive |
+| Objective Rate | % of your team's epic monsters taken while you were alive (dead = death → respawn timer) |
 
 ### Analytics Engine — Rank Benchmark System
 - Every stat card is benchmarked against 10 rank tiers (Iron → Challenger) using `STAT_BENCHMARKS` thresholds in `analyticsEngine.js`
@@ -700,9 +700,10 @@ is now computed once and stored as a column:
 
 Two traps, both found by the parity harness:
 
-1. **`saveComputedStats` must not rewrite the seven legacy columns**
+1. **`saveComputedStats` must not rewrite the six legacy columns**
    (`csDiff15`, `goldDiff15`, `xpDiff15`, `firstBlood`, `dmgGoldRatio`,
-   `isolatedDeaths`, `objectiveRate`) — they are already written at sync time.
+   `isolatedDeaths`) — they are already written at sync time. (`objectiveRate`
+   was the seventh; it moved to the computed list when its rule was fixed.)
    That's why `LEGACY_STAT_COLUMNS` is a separate list behind an opt-in flag.
 2. **Watch the scale.** `dmgShare`/`goldShare` are stored as fractions, but
    `calcEconomy` builds its array in percent and `calcCombat` in fractions.
@@ -879,14 +880,33 @@ and re-renders on every open.
   a nested button; the switch stops click propagation. A master switch above
   the cards (`coachingToggleAllTrends`) sets every card to all games, or back
   to last 10 if they're all on already; it shows "N of 6" when mixed.
-- `plates_taken` is left out: stored values (4–7/game) are far off its
-  benchmark scale (Challenger = 2.7), so it's probably team plates. Control
-  wards also run above the general scale (6–7/game).
+- `plates_taken` and `obj_rate` are still left out of the report. Both were
+  wrong until the data-bug fix below; plates could come back now. Control
+  wards run above the general scale (6–7/game).
 - `coachingEngine.js` still picks the focus (input vs outcome split,
   recoverable win rate); its tilt / watch / outcome evidence moved under a
   collapsed "Details".
 - Rank in the header = latest `lp_history` reading for 'solo' (no API call).
-- **Known data bug:** `objectiveRate` is 100 for practically every stored game,
-  so it's left out of the report and Objectives' sparkline follows `obj_tower`.
-  The Analytics "Objective Rate" card and the engine's `objectiveRate` metric
-  are affected too.
+- Objectives' sparkline follows `obj_tower`: "Alive for Objectives" sits at
+  93–98% for everyone, so it barely moves.
+
+### Data bugs fixed — 2026-10 (plates, objective rate)
+
+`services/timelineRules.js` (pure, tested); migration 6 clears
+`statsComputedAt` so the background backfill recomputes every game.
+
+- **Plates Taken/Lost** came from Riot's `challenges.turretPlatesTaken`
+  (6–10 a game). The timeline keeps sending `TURRET_PLATE_DESTROYED` after
+  14:00 (~40 a game) and Riot's counter includes them. Now: your (or your lane
+  opponent's) plate events before 14:00, a repeated event counted once. Real
+  data: ~1.5 a game for laners, ~0.1 for jungle. Needs the timeline (NULL
+  without one), also in the analytics fallback.
+- **Objective Rate** = share of your team's epic monsters taken while you were
+  alive. "Dead" used to need a death in the last 30 s *and* a fountain position
+  in that minute's frame, so it was 100 in ~98% of games. Now dead = death →
+  respawn timer (base by level, +time factor after 15:00, max +50%). Real data:
+  93–98% average in every role, 100 in ~3 games of 4. So the cards are renamed
+  "Alive for Objectives" and **not benchmarked** (the old 35–70% ladder made
+  everyone Challenger), and Coaching's target is 100% in every role.
+  `objectiveRate` moved from `LEGACY_STAT_COLUMNS` to `COMPUTED_STAT_COLUMNS`
+  so the backfill rewrites it.

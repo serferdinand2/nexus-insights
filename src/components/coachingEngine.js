@@ -186,12 +186,11 @@
             // Deliberately separate from the raw "dragons/barons per game"
             // outcome below. That number mostly says "the team was winning";
             // this one says "you were alive and there for the fight", which
-            // is a positioning decision a player actually controls. JUNGLE
-            // gets the highest bar because contesting neutral objectives is
-            // the role's core job; TOP the lowest, since holding a side wave
-            // during a bot-side objective is often the correct call, not a
-            // missed rotation.
-            target: { JUNGLE: 55, UTILITY: 50, MIDDLE: 45, BOTTOM: 40, TOP: 35, default: 40 },
+            // is a positioning decision a player actually controls. Since the
+            // dead/alive rule was fixed (respawn timers, services/timelineRules.js)
+            // it averages 93–98% in every role, so the bar is simply "not dead
+            // for any of your team's objectives this game" (~3 games in 4).
+            target: { default: 100 },
             rule: 'Play your objective timers, not just your lane — dying before a spawn costs the whole team the fight.',
         },
 

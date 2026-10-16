@@ -52,23 +52,28 @@ function makeTimeline(minutes = 20) {
         for (let pid = 1; pid <= 10; pid++) {
             participantFrames[pid] = { minionsKilled: 0, jungleMinionsKilled: 0, totalGold: 500, xp: 0, position: FAR };
         }
-        participantFrames[ME]  = { minionsKilled: 8 * m, jungleMinionsKilled: 0, totalGold: 500 + 400 * m, xp: 450 * m, position: MID };
+        const level = Math.min(18, 1 + Math.floor(m * 0.75));   // level 10 at 12:00
+        participantFrames[ME]  = { minionsKilled: 8 * m, jungleMinionsKilled: 0, totalGold: 500 + 400 * m, xp: 450 * m, level, position: MID };
         participantFrames[OPP] = { minionsKilled: 7 * m, jungleMinionsKilled: 0, totalGold: 500 + 380 * m, xp: 430 * m, position: MID };
         frames.push({ timestamp: m * MIN, participantFrames, events: [] });
     }
-    // At 12:00 my jungler stands next to me, and I'm back in fountain
-    if (frames[12]) {
-        frames[12].participantFrames[MY_JUNGLER].position = { x: 7500, y: 7000 };
-        frames[12].participantFrames[ME].position = { x: 500, y: 500 };
-    }
+    // At 12:00 my jungler stands next to me
+    if (frames[12]) frames[12].participantFrames[MY_JUNGLER].position = { x: 7500, y: 7000 };
     const at = (t, e) => { if (frames[Math.floor(t / MIN)]) frames[Math.floor(t / MIN)].events.push({ timestamp: t, ...e }); };
     at(3 * MIN,       { type: 'CHAMPION_KILL', killerId: ME,  victimId: OPP, bounty: 300, position: MID });
     at(5 * MIN + 10e3, { type: 'CHAMPION_KILL', killerId: OPP, victimId: ME,  bounty: 300, position: MID }); // alone, early
+    at(5 * MIN + 30e3, { type: 'ELITE_MONSTER_KILL', killerId: MY_JUNGLER, monsterType: 'HORDE' });         // level 4: 8 s respawn, alive again
     at(8 * MIN,       { type: 'ELITE_MONSTER_KILL', killerId: MY_JUNGLER, monsterType: 'DRAGON' });         // I'm alive
     at(12 * MIN,      { type: 'CHAMPION_KILL', killerId: OPP, victimId: ME,  bounty: 450, position: MID }); // shutdown, jungler near
-    at(12 * MIN + 10e3, { type: 'ELITE_MONSTER_KILL', killerId: MY_JUNGLER, monsterType: 'DRAGON' });       // I'm dead
+    at(12 * MIN + 5e3,  { type: 'ELITE_MONSTER_KILL', killerId: MY_JUNGLER, monsterType: 'HORDE' });        // dead
+    at(12 * MIN + 30e3, { type: 'ELITE_MONSTER_KILL', killerId: MY_JUNGLER, monsterType: 'DRAGON' });       // level 10: 32.5 s, still dead
     at(13 * MIN,      { type: 'ELITE_MONSTER_KILL', killerId: 7, monsterType: 'DRAGON' });                  // theirs, not counted
     at(14 * MIN,      { type: 'CHAMPION_KILL', killerId: ME,  victimId: 9,   bounty: 500, position: MID }); // shutdown claimed
+    // Plates: two of mine (one sent twice), one of Zed's, and plate events after 14:00 that don't count
+    const plate = (t, killerId, x) => at(t, { type: 'TURRET_PLATE_DESTROYED', killerId, teamId: killerId === ME ? 200 : 100, laneType: 'MID_LANE', position: { x, y: 8500 } });
+    plate(6 * MIN, ME, 8955); plate(6 * MIN, ME, 8955); plate(9 * MIN, ME, 8960);
+    plate(7 * MIN, OPP, 5846);
+    plate(15 * MIN, ME, 8955); plate(16 * MIN, OPP, 5846);
     return { info: { frames } };
 }
 
@@ -108,15 +113,22 @@ test('deaths: early, isolated, shutdowns', () => {
 });
 
 test('objective rate counts my team\'s monsters I was alive for', () => {
-    // 8:00 dragon: alive. 12:10 dragon: died 10 s earlier, in fountain. Enemy dragon ignored.
+    // Grubs 5:30 alive (died 5:10, 8 s respawn), dragon 8:00 alive; grubs 12:05
+    // and dragon 12:30 dead (died 12:00, 32.5 s at level 10). Enemy dragon ignored.
     assert.equal(compute().objectiveRate, 50);
 });
 
-test('first blood, plates, solo kills and vision come from the match payload', () => {
+test('plates: mine and my lane opponent\'s before 14:00, a repeated event once', () => {
     const s = compute();
-    assert.equal(s.firstBlood, 1);
     assert.equal(s.platesTaken, 2);
     assert.equal(s.platesLost, 1);
+    // From the timeline only: Riot's challenge counter also counted later events
+    assert.equal(compute(makeMatch(), null).platesTaken, null);
+});
+
+test('first blood, solo kills and vision come from the match payload', () => {
+    const s = compute();
+    assert.equal(s.firstBlood, 1);
     assert.equal(s.soloKillDiff, 1);
     assert.equal(s.visionAdvantage, 0.25);
 });
@@ -148,7 +160,7 @@ test('without a timeline, payload values are still filled', () => {
     assert.equal(s.isolatedDeaths, null);
     assert.equal(s.objectiveRate, null);
     assert.equal(s.dmgShare, 0.333);
-    assert.equal(s.platesTaken, 2);
+    assert.equal(s.soloKillDiff, 1);
 });
 
 test('remakes, and a player who isn\'t in the game', () => {
