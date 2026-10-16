@@ -4,6 +4,8 @@
  */
 
 const { getItemData, getRuneData, getSummonerSpellData } = require('../services/dataDragon');
+const { itemDescriptionHtml } = require('./itemDescription');
+const { escapeHtml } = require('./dom');
 
 function tooltip() {
     return document.getElementById('gameTooltip');
@@ -36,32 +38,18 @@ function showItemTooltip(itemId, boughtAt) {
     const title = el.querySelector('.tooltip-title');
     const desc  = el.querySelector('.tooltip-description');
 
-    const totalCost = itemData.gold?.total || 0;
-    const baseCost  = itemData.gold?.base  || 0;
+    const totalCost = Number(itemData.gold?.total) || 0;
+    const baseCost  = Number(itemData.gold?.base)  || 0;
     const costText  = baseCost > 0
         ? `<span class="item-cost">Cost: <span class="gold-value">${totalCost}</span> (<span class="gold-value">${baseCost}</span>)</span>`
         : `<span class="item-cost">Cost: <span class="gold-value">${totalCost}</span></span>`;
 
-    let description = itemData.description || '';
-    description = description.replace(/<\/?mainText>/gi, '');
-    description = description.replace(/<stats>/gi,   '<div class="item-stats">').replace(/<\/stats>/gi,   '</div>');
-    description = description.replace(/<passive>/gi, '<span class="item-passive-label">').replace(/<\/passive>/gi, '</span>');
-    description = description.replace(/<active>/gi,  '<span class="item-active-label">') .replace(/<\/active>/gi,  '</span>');
-    description = description.replace(/<attention>/gi,     '<span class="item-attention">').replace(/<\/attention>/gi,     '</span>');
-    description = description.replace(/<unique>/gi,        '<span class="item-unique">').replace(/<\/unique>/gi,        '</span>');
-    description = description.replace(/<rarityMythic>/gi,  '<span class="item-mythic">').replace(/<\/rarityMythic>/gi,  '</span>');
-    description = description.replace(/<rarityLegendary>/gi,'<span class="item-legendary">').replace(/<\/rarityLegendary>/gi,'</span>');
-    description = description.replace(/<\/?[a-zA-Z]+[A-Z][a-zA-Z]*>/g, '');
-    description = description.replace(/<\/div>\s*(<br\s*\/?>[\s]*)+ /gi, '</div>');
-    description = description.replace(/(<br\s*\/?>[\s]*)+\s*<div/gi, '<div');
-    description = description.replace(/(<br\s*\/?>[\s]*)+\s*<span class="item-(passive|active)-label">/gi, '<span class="item-$2-label">');
-    description = description.replace(/(<br\s*\/?>[\s]*){2,}/gi, '<br>');
-    description = description.replace(/^(\s*<br\s*\/?>)+/gi, '');
-    description = description.replace(/(<br\s*\/?>)+\s*$/gi, '');
+    // Escaped, with only Riot's known tags turned back into markup (#37)
+    const description = itemDescriptionHtml(itemData.description);
 
     // "Bought at 14:32" from the match timeline (#7); only digits and ':' get here
     const bought = /^\d+:\d\d$/.test(boughtAt || '') ? `<br><span class="item-bought">Bought at ${boughtAt}</span>` : '';
-    title.innerHTML = `${itemData.name || 'Unknown Item'}<br>${costText}${bought}`;
+    title.innerHTML = `${escapeHtml(itemData.name || 'Unknown Item')}<br>${costText}${bought}`;
     desc.innerHTML  = description;
     el.style.display = 'block';
 }
