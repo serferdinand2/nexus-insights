@@ -47,8 +47,32 @@ function teammateTable(matches, teammatesByMatch, { minGames = MIN_GAMES } = {})
     }
     return [...byPlayer.values()]
         .filter(r => r.games >= minGames)
-        .map(({ results, ...r }) => ({ ...r, winRate: r.wins / r.games, strip: results.slice(-STRIP) }))
+        .map(({ results, ...r }) => ({ ...r, losses: r.games - r.wins, winRate: r.wins / r.games, strip: results.slice(-STRIP) }))
         .sort((a, b) => (b.games - a.games) || (b.lastPlayed - a.lastPlayed));
 }
 
-module.exports = { MIN_GAMES, STRIP, teammatesOf, teammateTable };
+// Columns the Allies table can sort by (#30), and the direction a first click uses
+const SORT_KEYS = { name: 'asc', games: 'desc', winRate: 'desc', wins: 'desc', losses: 'desc' };
+
+/**
+ * Rows sorted by `key` (one of SORT_KEYS). Ties: more games first, then the
+ * most recent. For win rate, players with fewer than `minGames` games
+ * together sink below the rest whichever way it's sorted, so a 3–0 doesn't
+ * top the list.
+ */
+function sortTeammates(rows, key = 'games', dir = SORT_KEYS[key] || 'desc', { minGames = 0 } = {}) {
+    if (!SORT_KEYS[key]) key = 'games';
+    const sign = dir === 'asc' ? 1 : -1;
+    return [...rows].sort((a, b) => {
+        if (key === 'winRate' && minGames > 0) {
+            const aLow = a.games < minGames, bLow = b.games < minGames;
+            if (aLow !== bLow) return aLow ? 1 : -1;
+        }
+        const cmp = key === 'name'
+            ? String(a.name).localeCompare(String(b.name), undefined, { sensitivity: 'base' })
+            : a[key] - b[key];
+        return (sign * cmp) || (b.games - a.games) || (b.lastPlayed - a.lastPlayed);
+    });
+}
+
+module.exports = { MIN_GAMES, STRIP, SORT_KEYS, teammatesOf, teammateTable, sortTeammates };
