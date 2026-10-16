@@ -1,7 +1,28 @@
 const axios = require('axios');
+const { getConfigValue, setConfigValue } = require('./config');
+
+// A version that exists on the CDN (checked 2026-10-16). Used only when
+// versions.json can't be reached and no version has worked before (#39).
+const FALLBACK_VERSION = '16.20.1';
+const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Which version to use: the newest from versions.json, else the last one that
+ * worked on this PC (its icons are likely in the browser cache), else the
+ * built-in fallback. Anything that doesn't look like 16.20.1 is ignored.
+ */
+function pickVersion({ fetched, saved } = {}) {
+    if (VERSION_RE.test(fetched || '')) return fetched;
+    if (VERSION_RE.test(saved || '')) return saved;
+    return FALLBACK_VERSION;
+}
+
+function savedVersion() {
+    try { return getConfigValue('ddragonVersion'); } catch { return null; }
+}
 
 // Data Dragon version - fetched dynamically, with fallback
-let DDRAGON_VERSION = '25.S1.1';
+let DDRAGON_VERSION = pickVersion({ saved: savedVersion() });
 let DDRAGON_BASE = `https://ddragon.leagueoflegends.com/cdn/${DDRAGON_VERSION}`;
 
 // In-memory cache for game data
@@ -17,16 +38,21 @@ let gameDataCache = {
  * Fetch the latest Data Dragon version from Riot's versions endpoint
  */
 async function fetchLatestVersion() {
+    let fetched = null;
     try {
-        const response = await axios.get('https://ddragon.leagueoflegends.com/api/versions.json');
-        const versions = response.data;
-        if (versions && versions.length > 0) {
-            DDRAGON_VERSION = versions[0];
-            DDRAGON_BASE = `https://ddragon.leagueoflegends.com/cdn/${DDRAGON_VERSION}`;
-            console.log('Data Dragon version set to:', DDRAGON_VERSION);
-        }
+        // A stalled connection mustn't hold up loading the game data
+        const response = await axios.get('https://ddragon.leagueoflegends.com/api/versions.json', { timeout: 8000 });
+        fetched = Array.isArray(response.data) ? response.data[0] : null;
     } catch (err) {
-        console.warn('Could not fetch Data Dragon version, using fallback:', DDRAGON_VERSION);
+        console.warn('Could not fetch Data Dragon version:', err.message);
+    }
+    const saved = savedVersion();
+    DDRAGON_VERSION = pickVersion({ fetched, saved });
+    DDRAGON_BASE = `https://ddragon.leagueoflegends.com/cdn/${DDRAGON_VERSION}`;
+    console.log(`Data Dragon version: ${DDRAGON_VERSION}${DDRAGON_VERSION === fetched ? '' : ' (fallback)'}`);
+    // Remember it for a start without internet
+    if (DDRAGON_VERSION === fetched && fetched !== saved) {
+        try { setConfigValue('ddragonVersion', fetched); } catch { /* not important */ }
     }
 }
 
@@ -152,6 +178,8 @@ function getDDragonBase() {
 }
 
 module.exports = {
+    pickVersion,
+    FALLBACK_VERSION,
     loadGameData,
     getItemData,
     getRuneData,

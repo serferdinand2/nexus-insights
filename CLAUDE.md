@@ -175,7 +175,7 @@ from `computeTabStats`. Full description: "Coaching page (rewritten 2026-10)" in
 ### Data Dragon CDN
 - `ddragon.leagueoflegends.com/cdn/{version}/...`
 - Fetches: items, runes, summoner spells, champion icons
-- Version fetched dynamically (fallback: `25.S1.1`)
+- Version fetched dynamically (8 s timeout). Fallback: the last version that worked (saved as `config.ddragonVersion`), else `FALLBACK_VERSION` (`16.20.1`) in `dataDragon.js` (#39; it used to be `25.S1.1`, which 404s)
 
 ---
 
