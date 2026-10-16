@@ -17,7 +17,6 @@ const ALLOWED_QUEUES = new Set([420, 440, 400, 430, 480, 490, 700]);
 // enforces BOTH of Riot's windows (20/sec and 100/2min) and retries on 429.
 // Callers no longer sleep manually — doing so on top of the limiter would only
 // slow syncs down without making them any safer.
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // A game shorter than this is treated as a remake if Riot didn't flag it.
 const REMAKE_MAX_SECONDS = 300; // 5 minutes
@@ -999,141 +998,6 @@ async function backfillAdvancedStats(onProgress) {
     return { updated, total: rows.length };
 }
 
-// === Player Rank Caching ===
-const RANK_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
-
-async function getPlayerRank(puuid, maxAgeMs = RANK_CACHE_TTL_MS) {
-    // Check cache first
-    const cached = await dbGet(
-        "SELECT * FROM player_ranks WHERE puuid = ? AND fetchedAt > ?",
-        [puuid, Date.now() - maxAgeMs]
-    );
-    if (cached) return cached;
-
-    // Fetch from API
-    try {
-        const leagueData = await require('./riotApi').getLeagueByPuuid(puuid);
-        const now = Date.now();
-
-        const row = {
-            puuid,
-            soloTier: leagueData.solo?.tier || null,
-            soloRank: leagueData.solo?.rank || null,
-            soloLP: leagueData.solo?.leaguePoints ?? null,
-            flexTier: leagueData.flex?.tier || null,
-            flexRank: leagueData.flex?.rank || null,
-            flexLP: leagueData.flex?.leaguePoints ?? null,
-            fetchedAt: now
-        };
-
-        await dbRun(
-            `INSERT INTO player_ranks (puuid, soloTier, soloRank, soloLP, flexTier, flexRank, flexLP, fetchedAt)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON CONFLICT(puuid) DO UPDATE SET
-                soloTier=excluded.soloTier, soloRank=excluded.soloRank, soloLP=excluded.soloLP,
-                flexTier=excluded.flexTier, flexRank=excluded.flexRank, flexLP=excluded.flexLP,
-                fetchedAt=excluded.fetchedAt`,
-            [row.puuid, row.soloTier, row.soloRank, row.soloLP, row.flexTier, row.flexRank, row.flexLP, row.fetchedAt]
-        );
-
-        return row;
-    } catch (error) {
-        console.warn(`Failed to fetch rank for ${puuid}: ${error.message}`);
-        // Return stale cache if available
-        const stale = await dbGet("SELECT * FROM player_ranks WHERE puuid = ?", [puuid]);
-        return stale || null;
-    }
-}
-
-// Get cached rank data for all participants in a match (no API calls)
-async function getMatchParticipantRanks(matchId) {
-    const match = await dbGet("SELECT rawJson FROM matches WHERE matchId = ?", [matchId]);
-    if (!match || !match.rawJson) return {};
-
-    const data = decompressJson(match.rawJson);
-    const participants = data.info.participants;
-
-    const puuids = participants.map(p => p.puuid).filter(Boolean);
-    const rankMap = {};
-    for (const puuid of puuids) rankMap[puuid] = null;
-
-    if (puuids.length > 0) {
-        const rows = await dbAll(
-            `SELECT * FROM player_ranks WHERE puuid IN (${puuids.map(() => '?').join(',')})`,
-            puuids
-        );
-        for (const row of rows) rankMap[row.puuid] = row;
-    }
-
-    return rankMap;
-}
-
-// Fetch ranks for participants of newly synced matches only
-async function fetchRanksForNewMatches(matchIds, onProgress) {
-    if (!matchIds || matchIds.length === 0) return { fetched: 0, failed: 0, total: 0 };
-
-    // Collect unique PUUIDs from the new matches (batched blob fetch)
-    const allPuuids = new Set();
-    for (const ids of chunk(matchIds, SQL_VAR_LIMIT)) {
-        const rows = await dbAll(
-            `SELECT rawJson FROM matches WHERE matchId IN (${ids.map(() => '?').join(',')}) AND rawJson IS NOT NULL`,
-            ids
-        );
-        for (const row of rows) {
-            try {
-                const data = decompressJson(row.rawJson);
-                for (const p of data.info.participants) {
-                    if (p.puuid && p.puuid.length >= 40) allPuuids.add(p.puuid);
-                }
-            } catch (e) { /* skip malformed */ }
-        }
-    }
-
-    // Filter out those already cached within TTL (one batched query)
-    const cutoff = Date.now() - RANK_CACHE_TTL_MS;
-    const freshPuuids = new Set();
-    for (const ids of chunk([...allPuuids], SQL_VAR_LIMIT)) {
-        const rows = await dbAll(
-            `SELECT puuid FROM player_ranks WHERE fetchedAt > ? AND puuid IN (${ids.map(() => '?').join(',')})`,
-            [cutoff, ...ids]
-        );
-        for (const row of rows) freshPuuids.add(row.puuid);
-    }
-    const puuidsToFetch = [...allPuuids].filter(p => !freshPuuids.has(p));
-
-    if (puuidsToFetch.length === 0) {
-        console.log('All player ranks for new matches are already cached.');
-        return { fetched: 0, failed: 0, total: 0 };
-    }
-
-    console.log(`Fetching ranks for ${puuidsToFetch.length} players from ${matchIds.length} new matches...`);
-    let fetched = 0;
-    let failed = 0;
-
-    for (let i = 0; i < puuidsToFetch.length; i++) {
-        const MAX_RETRIES = 2;
-        for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-            try {
-                await getPlayerRank(puuidsToFetch[i], 0);
-                fetched++;
-                break;
-            } catch (err) {
-                if (attempt < MAX_RETRIES) {
-                    await sleep(1000 * (attempt + 1));
-                } else {
-                    failed++;
-                    console.warn(`Failed rank for player ${i + 1}/${puuidsToFetch.length}: ${err.message}`);
-                }
-            }
-        }
-
-        if (onProgress) onProgress(i + 1, puuidsToFetch.length);
-    }
-
-    console.log(`Rank fetch complete: ${fetched} fetched, ${failed} failed`);
-    return { fetched, failed, total: puuidsToFetch.length };
-}
-
 const {
     saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches,
@@ -1141,7 +1005,7 @@ const {
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 } = require('./database');
 
-module.exports = { syncMatches, fillGaps, loadTeammates, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
+module.exports = { syncMatches, fillGaps, loadTeammates, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,
