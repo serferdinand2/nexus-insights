@@ -17,6 +17,9 @@ const links   = (readings, games) => Object.fromEntries(attributeReadings(readin
 test('absoluteLp is continuous across divisions, tiers and apex', () => {
     assert.equal(absoluteLp('GOLD', 'I', 98) + 10, absoluteLp('PLATINUM', 'IV', 8));
     assert.equal(absoluteLp('SILVER', 'II', 50) - absoluteLp('SILVER', 'III', 70), 80);
+    // Demotions: Gold IV 10 → Silver I 90 is −20; Diamond IV 0 → Emerald I 75 is −25
+    assert.equal(absoluteLp('SILVER', 'I', 90) - absoluteLp('GOLD', 'IV', 10), -20);
+    assert.equal(absoluteLp('EMERALD', 'I', 75) - absoluteLp('DIAMOND', 'IV', 0), -25);
     assert.equal(absoluteLp('MASTER', 'I', 120), absoluteLp('DIAMOND', 'IV', 0) + 400 + 120);
     assert.equal(absoluteLp('GRANDMASTER', 'I', 300), absoluteLp('MASTER', 'I', 300));
 });

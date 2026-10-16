@@ -768,4 +768,9 @@ and re-renders on every open.
 - **Known data bug:** `objectiveRate` is 100 for practically every stored game,
   so it's left out of the report and Objectives' sparkline follows `obj_tower`.
   The Analytics "Objective Rate" card and the engine's `objectiveRate` metric
-  are affected too.
+  are affected too. Cause (pinned by a `todo` test in
+  `test/advancedStats.test.js`): the "were you dead?" check reads your
+  position from the minute frame *before* the objective and only counts you
+  dead if that position is in your fountain and you died < 30 s earlier, but
+  Riot reports a dead player at their death spot and respawns run longer. A
+  fix needs real respawn timers and a recompute of this legacy column.
