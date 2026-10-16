@@ -4943,6 +4943,109 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     #filterSection .champ-filter-wrapper { margin-left: auto; }
 }
 
+/* Role filter (#10): same look as the champion dropdown, a bit narrower,
+   always right next to it */
+#filterSection .role-filter-wrapper {
+    flex-basis: 130px;
+    min-width: 110px;
+    margin-left: 0;
+}
+
+@media (max-width: 1250px) {
+    #filterSection .role-filter-wrapper { margin-left: 0; }
+}
+
+/* ── Roles table under the Overview cards (components/roleBreakdown.js) ── */
+.role-breakdown {
+    margin-top: var(--gutter);
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+}
+
+.role-breakdown[hidden] {
+    display: none;
+}
+
+.rb-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.rb-title {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.rb-sub {
+    color: var(--text-tertiary);
+    font-size: 11px;
+}
+
+.rb-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.rb-table th {
+    padding: 6px 8px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.rb-table td {
+    padding: 6px 8px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.rb-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.rb-table tr.rb-pickable {
+    cursor: pointer;
+}
+
+.rb-table tr.rb-pickable:hover {
+    background: var(--surface-hover);
+}
+
+.rb-table tr.selected {
+    background: rgba(var(--accent-rgb), 0.08);
+    box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.rb-table tr.is-low td {
+    opacity: 0.6;
+}
+
+.rb-role {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.rb-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    opacity: 0.8;
+}
+
 /* ── Match-count pill on the Match History nav button ──────── */
 .nav-count {
     display: inline-block;

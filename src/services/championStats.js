@@ -64,6 +64,19 @@ function rolesOf(games) {
         .sort(byGamesDesc);
 }
 
+/**
+ * One row per role, most played first: the Roles table on Overview (#10).
+ * `playRate` is the share of these games; '' (no position) is "No role".
+ */
+function roleTable(matches) {
+    return [...groupBy(matches, m => m.teamPosition || '')]
+        .map(([role, games]) => ({
+            role, label: roleLabel(role), ...summarize(games),
+            playRate: games.length / matches.length,
+        }))
+        .sort(byGamesDesc);
+}
+
 /** One row per champion, most played first. */
 function championTable(matches) {
     return [...groupBy(matches, m => m.championName)]
@@ -158,4 +171,4 @@ function championDetail(matches, champion, { role = null, isCoreItem = id => id 
     };
 }
 
-module.exports = { summarize, championTable, championDetail, sortRows, roleLabel, ROLE_LABELS };
+module.exports = { summarize, championTable, championDetail, roleTable, sortRows, roleLabel, ROLE_LABELS };

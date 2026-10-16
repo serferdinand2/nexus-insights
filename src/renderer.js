@@ -30,6 +30,7 @@ window.require('./components/windowControls'); // registers initWindowControls
 window.require('./components/updateButton');   // registers initUpdateButton (titlebar ⟳)
 window.require('./components/skinsPanel');     // registers applySavedSkin, openSkinsPanel
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
+window.require('./components/roleBreakdown');  // registers renderRoleBreakdown (Roles table on Overview)
 window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
 window.require('./components/periodFilter');   // registers updatePeriodDropdown, applyPeriodFilter, renderPatchWinRates
 
@@ -39,7 +40,7 @@ const {
 } = window.require('./components/matchCard');
 const { initTooltips }              = window.require('./components/tooltipSystem');
 const {
-    activeQueueFilters, initializeFilters, updateChampionDropdown
+    activeQueueFilters, initializeFilters, updateChampionDropdown, updateRoleDropdown
 } = window.require('./components/filtersPanel');
 
 // ============================================================
@@ -578,10 +579,21 @@ window.renderFilteredMatches = async function (opts = {}) {
         (includeUnknown && !allDefinedQueues.has(match.queueId))
     );
 
-    const selectedChamp   = document.getElementById('champFilter').value;
-    const filteredMatches = (selectedChamp && selectedChamp !== '__none__')
+    const selectedChamp = document.getElementById('champFilter').value;
+    const champMatches  = (selectedChamp && selectedChamp !== '__none__')
         ? queueFiltered.filter(match => match.championName === selectedChamp)
         : queueFiltered;
+
+    // Role filter (#10) narrows everything below, like the champion filter.
+    // The Roles table on Overview gets the list from before it, so it can
+    // still compare every role.
+    const roleSelect      = document.getElementById('roleFilter');
+    const selectedRole    = roleSelect ? roleSelect.value : '';
+    const filteredMatches = selectedRole
+        ? champMatches.filter(match => (match.teamPosition || '') === selectedRole)
+        : champMatches;
+    window.analyticsRoleFilter = selectedRole || null;
+    window.rolePoolMatches     = champMatches;
 
     // Calendar date filter (selectedDates is populated by future calendar-selection feature)
     const selectedDates      = window.selectedDates;
@@ -606,7 +618,8 @@ window.renderFilteredMatches = async function (opts = {}) {
             .filter(m => { const d = new Date(m.gameCreation); return d >= prevMinDate && d <= prevMaxDate; })
             .filter(match =>
                 (activeQueueFilters.has(match.queueId) || (includeUnknown && !allDefinedQueues.has(match.queueId))) &&
-                (!selectedChamp || selectedChamp === '__none__' || match.championName === selectedChamp)
+                (!selectedChamp || selectedChamp === '__none__' || match.championName === selectedChamp) &&
+                (!selectedRole || (match.teamPosition || '') === selectedRole)
             );
     }
 
@@ -617,6 +630,7 @@ window.renderFilteredMatches = async function (opts = {}) {
         queues: [...activeQueueFilters].sort(),
         includeUnknown,
         champ: selectedChamp,
+        role: selectedRole,
         dates: [...selectedDates].sort(),
         size: matchesData.length,
         period: periodSelect ? periodSelect.value : '',
@@ -627,6 +641,7 @@ window.renderFilteredMatches = async function (opts = {}) {
         lastFilterSignature = signature;
 
         updateChampionDropdown(queueFiltered);
+        updateRoleDropdown(champMatches);
 
         // Statistics run on real games only — remakes would drag every average
         // toward zero and count as wins/losses they never were.
@@ -802,7 +817,8 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
         if (flexCard && persistentContainer) persistentContainer.appendChild(flexCard);
     }
 
-    const cards = window.computeTabStats(tabName, matches, previousMatches);
+    // One role picked → cards are ranked on that role's thresholds (#10)
+    const cards = window.computeTabStats(tabName, matches, previousMatches, { role: window.analyticsRoleFilter || null });
 
     cards.forEach(card => {
         const div     = document.createElement('div');
@@ -871,6 +887,13 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
     });
 
     balanceStatsGrid(container);
+
+    // Roles table under the Overview cards: every role, before the role filter
+    if (typeof window.renderRoleBreakdown === 'function') {
+        window.renderRoleBreakdown(
+            tabName === 'Overview' ? window.excludeRemakes(window.rolePoolMatches || matches) : null,
+            window.analyticsRoleFilter);
+    }
 
     // Keep an open history chart in step: recompute it for new filters, or
     // close it when the sub-tab changed and its card is no longer on screen.
