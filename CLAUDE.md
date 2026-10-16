@@ -99,7 +99,7 @@ src/
 
 - **Dark theme** throughout, with gold/teal CSS custom property accents
 - **Title bar**: Nexus logo + name on the left, ⟳ update button and ⚙ settings (SVG) top-right
-- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Coaching, Chat, Skins
+- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Teammates, Coaching, Chat, Skins
 - **Analytics tab**:
   - Summoner Name # Tag input + "Sync Matches" button at the top
   - Progress bar with new/filtered/existing counters during sync
@@ -563,6 +563,20 @@ tested). Nav rail button between Match History and Coaching.
   patches changes) and the **Win Rate by Patch** card, which sits beside
   Win Rate by Game Length (one `ta-right-row`, so the section's height
   doesn't change).
+
+### Teammates page (2026-10, issue #11)
+
+- `components/teammatesPanel.js` (page) + `services/teammates.js` (pure,
+  tested): players you had on your team in 3+ games, with games together,
+  win rate, last played and a win/loss strip of the last 30. Same games as
+  the Champions page (`window.championPoolMatches`: game-mode + period
+  filters, remakes out); re-renders when filters change while open.
+- **Data:** a separate table, `match_teammates (matchId, teammates JSON)`,
+  not a computed-stats column. `matchService.loadTeammates()` creates it if
+  needed, fills only games not in it yet (25 rawJson blobs at a time, then
+  dropped, so the "Lazy JSON Loading" rule holds) and returns matchId →
+  [{ puuid, name }]. Players are keyed by PUUID (survives renames); the name
+  shown is the newest. First open on 566 games reads them all once.
 
 ### Remakes are excluded from statistics
 

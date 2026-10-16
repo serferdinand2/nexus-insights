@@ -5139,6 +5139,88 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     #filterSection .role-filter-wrapper { margin-left: 0; }
 }
 
+/* ── Teammates page (components/teammatesPanel.js, #11) ── */
+.teammates-list {
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.tm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.tm-table th {
+    padding: 10px 12px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.tm-table td {
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.tm-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tm-table tr.is-low td {
+    opacity: 0.7;
+}
+
+.tm-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.tm-tag,
+.tm-wl,
+.tm-dim {
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
+
+.tm-wl {
+    margin-left: 6px;
+    font-size: 11px;
+}
+
+.tm-strip {
+    display: flex;
+    gap: 2px;
+}
+
+.tm-strip i {
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+}
+
+.tm-strip i.w {
+    background: rgba(34, 197, 94, 0.75);
+}
+
+.tm-strip i.l {
+    background: rgba(239, 68, 68, 0.7);
+}
+
+.tm-empty {
+    padding: 24px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    text-align: center;
+}
+
 /* ── Roles table under the Overview cards (components/roleBreakdown.js) ── */
 .role-breakdown {
     margin-top: var(--gutter);

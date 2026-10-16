@@ -34,6 +34,7 @@ window.require('./components/chatPanel');      // registers openChatPanel (Ollam
 window.require('./components/laneGapChart');  // registers renderLaneGapChart (Lane Phase chart, #12)
 window.require('./components/roleBreakdown');  // registers renderRoleBreakdown (Roles table on Overview)
 window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
+window.require('./components/teammatesPanel'); // registers openTeammatesPanel (Teammates page)
 window.require('./components/periodFilter');   // registers updatePeriodDropdown, applyPeriodFilter, renderPatchWinRates
 
 // Destructure named exports needed inside renderer.js itself
@@ -693,6 +694,11 @@ window.renderFilteredMatches = async function (opts = {}) {
         if (champTab && champTab.style.display !== 'none' && typeof window.openChampionsPanel === 'function') {
             window.openChampionsPanel();
         }
+        // The Teammates page counts the same games (#11)
+        const mateTab = document.getElementById('teammates-tab');
+        if (mateTab && mateTab.style.display !== 'none' && typeof window.openTeammatesPanel === 'function') {
+            window.openTeammatesPanel();
+        }
 
         // Keep Time Analytics (calendar, time-of-day, best day, stamina, streaks) in sync
         window._calendarFilteredMatches = statsMatches;
@@ -1016,6 +1022,7 @@ const TOP_TABS = {
     analytics: { panel: 'analytics-tab', nav: 'navAnalytics' },
     history:   { panel: 'history-tab',   nav: 'navHistory'   },
     champions: { panel: 'champions-tab', nav: 'navChampions' },
+    teammates: { panel: 'teammates-tab', nav: 'navTeammates' },
     coaching:  { panel: 'coaching-tab',  nav: 'navCoaching'  },
     chat:      { panel: 'chat-tab',      nav: 'navChat'      },
     skins:     { panel: 'skins-tab',     nav: 'navSkins'     },
@@ -1055,6 +1062,10 @@ window.switchTopTab = function (tab) {
 
     if (tab === 'champions' && typeof window.openChampionsPanel === 'function') {
         window.openChampionsPanel();
+    }
+
+    if (tab === 'teammates' && typeof window.openTeammatesPanel === 'function') {
+        window.openTeammatesPanel();
     }
 };
 

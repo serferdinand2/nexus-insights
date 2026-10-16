@@ -4,6 +4,7 @@ const { compressJson, decompressJson, decompressJsonAsync } = require('./compres
 const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
 const { computeLaneGaps } = require('./laneGaps');
+const { teammatesOf } = require('./teammates');
 const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
@@ -859,6 +860,51 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
     return result;
 }
 
+/**
+ * Teammates per game (#11): matchId → [{ puuid, name }].
+ *
+ * Kept in a small table of its own, `match_teammates`, filled from rawJson
+ * the first time it's needed and then only for games added since. Reading
+ * every blob on each visit would pin hundreds of MB (see "Lazy JSON
+ * Loading"), so missing games are done 25 at a time and the blobs dropped.
+ */
+async function loadTeammates(onProgress) {
+    await dbRun(`CREATE TABLE IF NOT EXISTS match_teammates (
+        matchId TEXT PRIMARY KEY,
+        teammates TEXT NOT NULL
+    )`);
+    const missing = await dbAll(`
+        SELECT m.matchId, m.championName, m.teamId FROM matches m
+        LEFT JOIN match_teammates t ON t.matchId = m.matchId
+        WHERE t.matchId IS NULL AND m.rawJson IS NOT NULL`);
+
+    for (let i = 0; i < missing.length; i += 25) {
+        const batch = missing.slice(i, i + 25);
+        const blobs = await dbAll(
+            `SELECT matchId, rawJson FROM matches WHERE matchId IN (${batch.map(() => '?').join(',')})`,
+            batch.map(r => r.matchId));
+        const rawById = new Map(blobs.map(b => [b.matchId, b.rawJson]));
+        for (const row of batch) {
+            let list = [];
+            try {
+                list = teammatesOf(await decompressJsonAsync(rawById.get(row.matchId)), row.championName, row.teamId);
+            } catch (e) {
+                console.warn(`Teammates unavailable for ${row.matchId}:`, e.message);
+            }
+            await dbRun('INSERT OR REPLACE INTO match_teammates (matchId, teammates) VALUES (?, ?)',
+                [row.matchId, JSON.stringify(list)]);
+        }
+        if (onProgress) onProgress(Math.min(i + 25, missing.length), missing.length);
+    }
+
+    const rows = await dbAll('SELECT matchId, teammates FROM match_teammates');
+    const out = new Map();
+    for (const r of rows) {
+        try { out.set(r.matchId, JSON.parse(r.teammates)); } catch { /* skip a bad row */ }
+    }
+    return out;
+}
+
 // Get league/rank data for a PUUID (using new PUUID-based endpoint)
 async function getLeagueData(puuid) {
     try {
@@ -1081,7 +1127,7 @@ const {
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 } = require('./database');
 
-module.exports = { syncMatches, fillGaps, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
+module.exports = { syncMatches, fillGaps, loadTeammates, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,
