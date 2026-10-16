@@ -322,7 +322,11 @@ function initDatabase() {
         -- (ms into the game).
         turretDamage INTEGER,
         objectiveDamage INTEGER,
-        firstDeathAt INTEGER
+        firstDeathAt INTEGER,
+        -- Issue #12: {"gold":[…],"xp":[…]} gap to the lane opponent per minute
+        -- 0–20 (services/laneGaps.js). '' = none (no opponent / no timeline),
+        -- NULL = not computed.
+        laneGaps TEXT
       )
     `);
 
@@ -484,7 +488,8 @@ function initDatabase() {
       'patch TEXT',
       'turretDamage INTEGER',
       'objectiveDamage INTEGER',
-      'firstDeathAt INTEGER'
+      'firstDeathAt INTEGER',
+      'laneGaps TEXT'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion

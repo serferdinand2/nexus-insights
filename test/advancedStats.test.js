@@ -83,6 +83,15 @@ test('lane differences at 15:00 against the same-position opponent', () => {
     assert.equal(s.laneOpponent, 'Zed');
 });
 
+test('gold / XP gap to the lane opponent per minute (#12)', () => {
+    const g = JSON.parse(compute().laneGaps);
+    assert.equal(g.gold.length, 21);
+    assert.equal(g.gold[15], 6500 - 6200);
+    assert.equal(g.xp[10], 4500 - 4300);
+    // No timeline: '' (none), not null (null = not indexed yet)
+    assert.equal(compute(makeMatch(), null).laneGaps, '');
+});
+
 test('CS at 10, 15 and 20 minutes', () => {
     const s = compute();
     assert.deepEqual([s.cs10, s.cs15, s.cs20], [80, 120, 160]);

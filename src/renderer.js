@@ -31,6 +31,7 @@ window.require('./components/windowControls'); // registers initWindowControls
 window.require('./components/updateButton');   // registers initUpdateButton (titlebar ⟳)
 window.require('./components/skinsPanel');     // registers applySavedSkin, openSkinsPanel
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
+window.require('./components/laneGapChart');  // registers renderLaneGapChart (Lane Phase chart, #12)
 window.require('./components/roleBreakdown');  // registers renderRoleBreakdown (Roles table on Overview)
 window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
 window.require('./components/periodFilter');   // registers updatePeriodDropdown, applyPeriodFilter, renderPatchWinRates
@@ -928,6 +929,11 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
             window.analyticsRoleFilter);
     }
 
+    // Gold/XP gap per minute under the Lane Phase cards (#12)
+    if (typeof window.renderLaneGapChart === 'function') {
+        window.renderLaneGapChart(tabName === 'Lane Phase' ? matches : null);
+    }
+
     // Keep an open history chart in step: recompute it for new filters, or
     // close it when the sub-tab changed and its card is no longer on screen.
     if (typeof window.syncStatHistory === 'function') window.syncStatHistory(tabName, matches);
@@ -1127,11 +1133,12 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function backfillAnalyticsInBackground() {
     try {
-        // Rows indexed before these columns existed (#2, #4, #6, #15)
+        // Rows indexed before these columns existed (#2, #4, #6, #12, #15)
         const pending = (window.matchesData || []).filter(
             m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null ||
                  m.patch == null ||       // #6
-                 m.turretDamage == null   // #15
+                 m.turretDamage == null ||  // #15
+                 m.laneGaps == null         // #12
         );
         if (pending.length === 0) return;
 

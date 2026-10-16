@@ -126,7 +126,7 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 | Sub-tab | Key Stats |
 |---------|-----------|
 | **Overview** | Win Rate, Avg KDA, KP%, CS/min, Avg CS, Avg Damage, Damage/Min |
-| **Lane Phase** | CSD@15, GD@15, XPD@15, CS@10/15/20, Deaths <10m, Plates Taken/Lost, Solo Kill Diff |
+| **Lane Phase** | CSD@15, GD@15, XPD@15, CS@10/15/20, Deaths <10m, Plates Taken/Lost, Solo Kill Diff; chart of the gold/XP gap per minute 0–20 |
 | **Combat** | Damage Share%, Damage/Min, Damage/Gold, Kill Participation, Shutdowns Claimed/Given, Multikills, Avg Impact Rank, MVP/SVP Rate |
 | **Death Review** | Deaths/Game, Deaths <10m, Isolated Deaths, Shutdown Gold Given, Death Share%, Avg First Death |
 | **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Objective Rate, Objective DMG/Min, Turret DMG/Min |
@@ -710,6 +710,22 @@ Two traps, both found by the parity harness:
    calculator keeps dividing the authoritative `deaths` column.
 
 **The repo must be public** for the download link and ⟳ updates to work; a private repo shows 404 to everyone but the owner. Never paste the token in chat — write it straight into the token file.
+
+### Lane gap chart (#12) — 2026-10
+
+Under the Lane Phase cards: average gold and XP minus your lane opponent's
+(same `teamPosition`) at each minute 0–20, over the games the filters show.
+
+- `laneGaps` column: JSON `{"gold":[…],"xp":[…]}`, index = minute, stopping at
+  the last full minute the game reached. Written by
+  `computeAdvancedStatsForMatch` (`services/laneGaps.js`, pure, tested). `''` =
+  no lane opponent or no timeline, NULL = not computed (re-index marker).
+  `backfillTimelines` resets it to NULL when a timeline arrives later.
+- `averageLaneGaps` averages each minute over the games that lasted that long.
+  Minutes from under 5 games are hollow and don't set the y-range.
+- `components/laneGapChart.js` draws it (Canvas, hover tooltip), like the
+  Roles table on Overview: `renderAnalyticsTab` calls
+  `window.renderLaneGapChart(matches)` on Lane Phase and `null` elsewhere.
 
 ### Small stats + CSV export (#15) — 2026-10
 

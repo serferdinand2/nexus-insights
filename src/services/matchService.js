@@ -3,6 +3,7 @@ const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
+const { computeLaneGaps } = require('./laneGaps');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
@@ -145,7 +146,7 @@ async function getMatches(limit = null) {
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
                 impactScore, impactRank, impactTag, laneOpponent, patch,
-                turretDamage, objectiveDamage, firstDeathAt
+                turretDamage, objectiveDamage, firstDeathAt, laneGaps
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -466,6 +467,7 @@ const COMPUTED_STAT_COLUMNS = [
     'laneOpponent',
     'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
+    'laneGaps',
 ];
 
 /**
@@ -504,7 +506,7 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank` / `laneOpponent` / `patch` / `turretDamage IS NULL` pick up
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps IS NULL` pick up
  * rows indexed before those columns existed. None stays NULL after a pass: the
  * champion + team that find "you" come from the same participant the row was
  * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
@@ -515,7 +517,7 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR patch IS NULL OR turretDamage IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -568,7 +570,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         impactScore: null, impactRank: null, impactTag: null,
         laneOpponent: null,
         patch: null,
-        turretDamage: null, objectiveDamage: null, firstDeathAt: null
+        turretDamage: null, objectiveDamage: null, firstDeathAt: null,
+        laneGaps: null
     };
 
     try {
@@ -670,9 +673,18 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             ? (typeof timelineData === 'string' ? JSON.parse(timelineData) : timelineData)
             : null;
 
+        // '' = no lane data for this game; filled in below when there is
+        result.laneGaps = '';
         if (!timeline || !timeline.info || !timeline.info.frames) return result;
 
         const frames = timeline.info.frames;
+
+        // === Gold / XP gap to the lane opponent, minute 0–20 (#12) ===
+        if (laneOpponent) {
+            const oppPId = laneOpponent.participantId || (participants.indexOf(laneOpponent) + 1);
+            const gaps = computeLaneGaps(frames, myPId, oppPId);
+            if (gaps) result.laneGaps = JSON.stringify(gaps);
+        }
 
         // === CSD@15, GD@15, XPD@15 ===
         // Frame index 15 = 15 minutes (each frame is 1 minute). Games that
@@ -855,7 +867,9 @@ async function backfillTimelines(onProgress) {
         const matchId = rows[i].matchId;
         try {
             const timelineData = await getMatchTimeline(matchId);
-            await dbRun("UPDATE matches SET timelineJson = ? WHERE matchId = ?", [compressJson(timelineData), matchId]);
+            // laneGaps back to NULL: it was stored as '' without a timeline,
+            // so the computed-stats backfill has to look at this game again
+            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
             updated++;
             console.log(`[${i + 1}/${rows.length}] Timeline saved for ${matchId}`);
         } catch (err) {
