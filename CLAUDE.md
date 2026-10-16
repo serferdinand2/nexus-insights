@@ -582,6 +582,13 @@ tested). Nav rail button between Match History and Coaching.
   dropped, so the "Lazy JSON Loading" rule holds) and returns matchId →
   [{ puuid, name }]. Players are keyed by PUUID (survives renames); the name
   shown is the newest. First open on 566 games reads them all once.
+- **Columns and sorting (#30):** Win rate, Wins and Losses are separate
+  columns. Player, Games together, Win rate, Wins and Losses sort on click
+  (again = reverse; Enter/Space too); Last played and Recent games don't.
+  `sortTeammates` (services/teammates.js): ties → more games, then most
+  recent; for Win rate, players under `LOW_SAMPLE` (5) games sink either
+  way. The sort is a module variable, so it survives filter changes until
+  the app restarts.
 
 ### Game report (2026-10, issue #9)
 

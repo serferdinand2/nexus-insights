@@ -56,3 +56,40 @@ test('the strip keeps the last 30 games', () => {
     assert.equal(row.strip.length, 30);
     assert.ok(row.strip.every(Boolean), 'the 10 early losses fell off the strip');
 });
+
+// ---------------------------------------------------------------------------
+// Sorting (#30)
+// ---------------------------------------------------------------------------
+const row = (name, games, wins, lastPlayed = 0) =>
+    ({ name, games, wins, losses: games - wins, winRate: wins / games, lastPlayed });
+
+test('rows carry losses as their own number', () => {
+    const games = [1, 2, 3].map(i => ({ matchId: `M${i}`, gameCreation: i, win: i === 1 ? 1 : 0 }));
+    const byMatch = new Map(games.map(g => [g.matchId, [{ puuid: 'p1', name: 'Ally#EUW' }]]));
+    const [r] = T.teammateTable(games, byMatch);
+    assert.equal(r.wins, 1);
+    assert.equal(r.losses, 2);
+});
+
+test('sortTeammates: each column, both directions', () => {
+    const rows = [row('bob#1', 10, 6, 5), row('Alice#1', 4, 1, 9), row('carl#1', 7, 6, 1)];
+    const names = (key, dir) => T.sortTeammates(rows, key, dir).map(r => r.name);
+    assert.deepEqual(names('games'), ['bob#1', 'carl#1', 'Alice#1']);           // default: desc
+    assert.deepEqual(names('games', 'asc'), ['Alice#1', 'carl#1', 'bob#1']);
+    assert.deepEqual(names('name'), ['Alice#1', 'bob#1', 'carl#1']);            // A→Z, ignores case
+    assert.deepEqual(names('name', 'desc'), ['carl#1', 'bob#1', 'Alice#1']);
+    assert.deepEqual(names('wins'), ['bob#1', 'carl#1', 'Alice#1']);           // 6 = 6: more games first
+    assert.deepEqual(names('losses'), ['bob#1', 'Alice#1', 'carl#1']);
+    assert.deepEqual(names('losses', 'asc'), ['carl#1', 'Alice#1', 'bob#1']);
+    assert.deepEqual(names('winRate'), ['carl#1', 'bob#1', 'Alice#1']);
+    assert.deepEqual(names('nonsense'), names('games'));
+    assert.notEqual(T.sortTeammates(rows), rows, 'returns a new array');
+});
+
+test('sortTeammates: small samples sink for win rate only, both directions', () => {
+    const rows = [row('perfect#1', 3, 3), row('solid#1', 20, 12), row('bad#1', 10, 2)];
+    const names = (key, dir) => T.sortTeammates(rows, key, dir, { minGames: 5 }).map(r => r.name);
+    assert.deepEqual(names('winRate', 'desc'), ['solid#1', 'bad#1', 'perfect#1']);
+    assert.deepEqual(names('winRate', 'asc'), ['bad#1', 'solid#1', 'perfect#1']);
+    assert.deepEqual(names('wins'), ['solid#1', 'perfect#1', 'bad#1']);         // no sinking here
+});
