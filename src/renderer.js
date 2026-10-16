@@ -33,6 +33,7 @@ window.require('./components/skinsPanel');     // registers applySavedSkin, open
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
 window.require('./components/laneGapChart');  // registers renderLaneGapChart (Lane Phase chart, #12)
 window.require('./components/roleBreakdown');  // registers renderRoleBreakdown (Roles table on Overview)
+window.require('./components/deathMapPanel');  // registers renderDeathMap (map under Death Review)
 window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
 window.require('./components/periodFilter');   // registers updatePeriodDropdown, applyPeriodFilter, renderPatchWinRates
 
@@ -929,6 +930,11 @@ window.renderAnalyticsTab = async function (matches, previousMatches) {
             window.analyticsRoleFilter);
     }
 
+    // Where you die, under the Death Review cards (#8): the same games as the cards
+    if (typeof window.renderDeathMap === 'function') {
+        window.renderDeathMap(tabName === 'Death Review' ? matches : null);
+    }
+
     // Gold/XP gap per minute under the Lane Phase cards (#12)
     if (typeof window.renderLaneGapChart === 'function') {
         window.renderLaneGapChart(tabName === 'Lane Phase' ? matches : null);
@@ -1138,7 +1144,8 @@ async function backfillAnalyticsInBackground() {
             m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null ||
                  m.patch == null ||       // #6
                  m.turretDamage == null ||  // #15
-                 m.laneGaps == null         // #12
+                 m.laneGaps == null ||      // #12
+                 m.itemPurchases == null || m.deathPositions == null   // #7, #8
         );
         if (pending.length === 0) return;
 

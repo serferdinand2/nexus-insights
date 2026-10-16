@@ -28,7 +28,7 @@ function hideTooltip() {
 // TOOLTIP CONTENT BUILDERS
 // ---------------------------------------------------------------------------
 
-function showItemTooltip(itemId) {
+function showItemTooltip(itemId, boughtAt) {
     const itemData = getItemData(itemId);
     if (!itemData) return;
 
@@ -59,7 +59,9 @@ function showItemTooltip(itemId) {
     description = description.replace(/^(\s*<br\s*\/?>)+/gi, '');
     description = description.replace(/(<br\s*\/?>)+\s*$/gi, '');
 
-    title.innerHTML = `${itemData.name || 'Unknown Item'}<br>${costText}`;
+    // "Bought at 14:32" from the match timeline (#7); only digits and ':' get here
+    const bought = /^\d+:\d\d$/.test(boughtAt || '') ? `<br><span class="item-bought">Bought at ${boughtAt}</span>` : '';
+    title.innerHTML = `${itemData.name || 'Unknown Item'}<br>${costText}${bought}`;
     desc.innerHTML  = description;
     el.style.display = 'block';
 }
@@ -113,7 +115,7 @@ function showColumnTooltip(labelEl) {
 // ---------------------------------------------------------------------------
 
 function handleTooltipShow(e) {
-    if (e.target.dataset?.itemId)         { showItemTooltip(e.target.dataset.itemId);                      return; }
+    if (e.target.dataset?.itemId)         { showItemTooltip(e.target.dataset.itemId, e.target.dataset.bought); return; }
     if (e.target.dataset?.runeId)         { showRuneTooltip(parseInt(e.target.dataset.runeId));             return; }
     if (e.target.dataset?.spellId)        { showSummonerSpellTooltip(parseInt(e.target.dataset.spellId));   return; }
     const badgeEl = e.target.closest('.badge-pill');

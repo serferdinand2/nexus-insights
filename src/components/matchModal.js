@@ -11,6 +11,8 @@ const { evaluateBadges } = require('./badgeEvaluator');
 const { escapeHtml }     = require('./dom');
 const { computeTeamImpact, IMPACT_AREAS } = require('../services/teamImpact');
 const { renderMatchTimeline } = require('./matchTimelineChart');
+const { purchasesFromTimeline, lastBoughtAt } = require('../services/itemBuild');
+const { formatClock } = require('../services/matchTimeline');
 const {
     RUNE_ICONS,
     getChampionIcon,
@@ -56,11 +58,13 @@ function renderPlayerRow(player, gameDuration) {
     const csPerMin  = gameDuration > 0 ? (player.cs / (gameDuration / 60)).toFixed(1) : '0.0';
     const DDRAGON   = window.DDRAGON_BASE;
 
+    // "Bought at" in the item tooltip (#7)
+    const at = id => (player.boughtAt && player.boughtAt.has(id) ? ` data-bought="${formatClock(player.boughtAt.get(id))}"` : '');
     const itemsTop    = player.items.slice(0, 3).map(id =>
-        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}" alt="Item">` : `<div class="team-item-empty-sm"></div>`
+        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}"${at(id)} alt="Item">` : `<div class="team-item-empty-sm"></div>`
     ).join('');
     const itemsBottom = player.items.slice(3, 7).map(id =>
-        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}" alt="Item">` : `<div class="team-item-empty-sm"></div>`
+        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}"${at(id)} alt="Item">` : `<div class="team-item-empty-sm"></div>`
     ).join('');
 
     const primaryPath   = RUNE_ICONS[player.primaryRune]        || null;
@@ -118,8 +122,9 @@ function buildTeamData(match) {
         const matchData    = typeof match.rawJson === 'string' ? JSON.parse(match.rawJson) : match.rawJson;
         const participants = matchData.info?.participants || [];
 
+        let timeline = null;
         if (match.timelineJson) {
-            const timeline  = typeof match.timelineJson === 'string' ? JSON.parse(match.timelineJson) : match.timelineJson;
+            timeline        = typeof match.timelineJson === 'string' ? JSON.parse(match.timelineJson) : match.timelineJson;
             timelineFrames  = timeline?.info?.frames || null;
         }
 
@@ -178,7 +183,8 @@ function buildTeamData(match) {
                 totalPings,        controlWardsBought: p.visionWardsBoughtInGame || 0,
                 towerDamage:       p.damageDealtToTurrets || 0,
                 isCurrentPlayer:   p.championName === match.championName && p.teamId === match.teamId,
-                impact:            impact.get(participantId) || null
+                impact:            impact.get(participantId) || null,
+                boughtAt:          timeline ? lastBoughtAt(purchasesFromTimeline(timeline, participantId)) : null
             };
 
             if (p.teamId === 100) teamData.team100.push(playerData);
