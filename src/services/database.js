@@ -8,6 +8,13 @@ const { absoluteLp, attributeReadings, deltasByMatch } = require('./lpAttributio
 const dbPath = path.join(userDataPath, 'nexus_data.sqlite');
 const db = new sqlite3.Database(dbPath);
 
+// The main process and the window each open this file (both require this
+// module). sqlite3 waits only 1 s for the other one's lock before failing
+// with SQLITE_BUSY, and a migration can hold it longer (migration 6 rewrites
+// every row while the window's startup backfill is writing) (#35).
+const BUSY_TIMEOUT_MS = 5000;
+db.configure('busyTimeout', BUSY_TIMEOUT_MS);
+
 // Promisify db methods for migration
 function dbRunAsync(sql, params = []) {
   return new Promise((resolve, reject) => {
