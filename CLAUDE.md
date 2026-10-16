@@ -128,8 +128,8 @@ Each sub-tab renders stat cards benchmarked against rank tiers (Iron → Challen
 | **Overview** | Win Rate, Avg KDA, KP%, CS/min, Avg CS, Avg Damage, Damage/Min |
 | **Lane Phase** | CSD@15, GD@15, XPD@15, CS@10/15/20, Deaths <10m, Plates Taken/Lost, Solo Kill Diff |
 | **Combat** | Damage Share%, Damage/Min, Damage/Gold, Kill Participation, Shutdowns Claimed/Given, Multikills, Avg Impact Rank, MVP/SVP Rate |
-| **Death Review** | Deaths/Game, Deaths <10m, Isolated Deaths, Shutdown Gold Given, Death Share% |
-| **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Objective Rate |
+| **Death Review** | Deaths/Game, Deaths <10m, Isolated Deaths, Shutdown Gold Given, Death Share%, Avg First Death |
+| **Objectives** | Dragon/Baron/Tower Control%, Heralds/Game, Inhibitors/Game, Obj Steals, Objective Rate, Objective DMG/Min, Turret DMG/Min |
 | **Vision** | Vision Score, VS/Min, Wards Placed/Killed, Control Wards, Vision Advantage |
 | **Economy** | Gold/Game, Gold/Min, CS/Game, CS/Min, Gold Share% |
 | **Macro** | Avg Game Length, First Blood Rate, Objective Rate, Dragon/Baron Control%, Short/Long game WR |
@@ -644,7 +644,8 @@ is now computed once and stored as a column:
 `cs10`, `cs15`, `cs20`, `deathsBefore10`, `platesTaken`, `platesLost`,
 `soloKillDiff`, `dmgShare`, `killParticipation`, `dmgTakenPerDeath`,
 `multikills`, `shutdownsClaimed`, `shutdownsGiven`, `shutdownBountyGiven`,
-`enemyTeamKills`, `visionAdvantage`, `goldShare`
+`enemyTeamKills`, `visionAdvantage`, `goldShare`, `turretDamage`,
+`objectiveDamage`, `firstDeathAt` (#15)
 
 - Written by `computeAdvancedStatsForMatch()` → `saveComputedStats()`, on both
   the sync path and the backfill path, so they can't diverge
@@ -668,6 +669,27 @@ Two traps, both found by the parity harness:
    calculator keeps dividing the authoritative `deaths` column.
 
 **The repo must be public** for the download link and ⟳ updates to work; a private repo shows 404 to everyone but the owner. Never paste the token in chat — write it straight into the token file.
+
+### Small stats + CSV export (#15) — 2026-10
+
+- Columns: `turretDamage` (= `damageDealtToBuildings`), `objectiveDamage`
+  (`damageDealtToObjectives − damageDealtToBuildings`, i.e. epic monsters),
+  `firstDeathAt` (ms, from the timeline; NULL = no death). `turretDamage` is
+  always a number once indexed, so `turretDamage IS NULL` is the re-index
+  marker in `backfillComputedStats` and `backfillAnalyticsInBackground`.
+- Cards: Objective DMG/Min, Turret DMG/Min (Objectives), Avg First Death
+  (Death Review, m:ss, games with a death only). **Not benchmarked**: on real
+  data objective damage/min is ~1000 for jungle vs ~35 for top, turret ~220
+  for laners vs ~50 jungle/support, and bot lane dies first ~3 min earlier
+  than mid. Rows not indexed yet are left out; with none, the card shows "--".
+- Settings → **Export matches to CSV**: `services/csvExport.js` (pure,
+  tested) builds the text from `window.exportableMatches` (current period,
+  game-mode, champion, role and calendar filters, remakes included, scalar
+  columns, oldest first, `date` column first, formula-looking text prefixed with `'`).
+  Main's `csv:save` IPC shows the save dialog and writes it with a BOM.
+- `test/advancedStats.test.js` (#14) covers `computeAdvancedStatsForMatch`
+  on a hand-built game: @15 diffs, CS@10/15/20, early/isolated deaths,
+  shutdowns, objective rate, shares, remakes, short games, no timeline.
 
 ### Left nav rail — 2026-10
 

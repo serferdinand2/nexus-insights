@@ -170,6 +170,29 @@ window.syncRegionToPlatform = syncRegionToPlatform;
  * live SQLite file out of a cloud-synced folder avoids sync corruption.
  * This just makes the location easy to find.
  */
+/**
+ * Settings → Export matches to CSV (#15): the matches the current period,
+ * game-mode, champion, role and calendar filters show, remakes included,
+ * scalar columns only.
+ */
+window.exportMatchesCsv = async function () {
+    const rows = window.exportableMatches || window.matchesData || [];
+    if (rows.length === 0) { showToast('Nothing to export', 'No matches match the current filters'); return; }
+    try {
+        const { matchesToCsv } = window.require('./services/csvExport');
+        const d = new Date();
+        const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        const result = await ipcRenderer.invoke('csv:save', {
+            defaultName: `nexus-matches-${stamp}.csv`,
+            content: matchesToCsv(rows),
+        });
+        if (result.saved) showToast('Exported', `${rows.length} matches saved to ${result.filePath}`);
+    } catch (err) {
+        console.warn('CSV export failed:', err);
+        showToast('Error', 'Could not export the matches');
+    }
+};
+
 window.openDataFolder = function () {
     try {
         window.require('electron').shell.openPath(userDataPath);
@@ -604,6 +627,9 @@ window.renderFilteredMatches = async function (opts = {}) {
             return selectedDates.has(dateStr);
           })
         : filteredMatches;
+
+    // What Settings → Export matches to CSV saves (#15)
+    window.exportableMatches = calFilteredMatches;
 
     // Compute previous period for trend comparison (calendar date ranges only)
     let previousMatches = [];
@@ -1094,10 +1120,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 async function backfillAnalyticsInBackground() {
     try {
-        // impactRank / laneOpponent: rows indexed before those existed (#2, #4)
+        // Rows indexed before these columns existed (#2, #4, #6, #15)
         const pending = (window.matchesData || []).filter(
             m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null ||
-                 m.patch == null   // #6
+                 m.patch == null ||       // #6
+                 m.turretDamage == null   // #15
         );
         if (pending.length === 0) return;
 

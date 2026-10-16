@@ -144,7 +144,8 @@ async function getMatches(limit = null) {
                 dmgShare, killParticipation, dmgTakenPerDeath, multikills,
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
-                impactScore, impactRank, impactTag, laneOpponent, patch
+                impactScore, impactRank, impactTag, laneOpponent, patch,
+                turretDamage, objectiveDamage, firstDeathAt
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -464,6 +465,7 @@ const COMPUTED_STAT_COLUMNS = [
     'impactScore', 'impactRank', 'impactTag',
     'laneOpponent',
     'patch',
+    'turretDamage', 'objectiveDamage', 'firstDeathAt',
 ];
 
 /**
@@ -502,10 +504,10 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank IS NULL` / `laneOpponent IS NULL` pick up rows indexed before
- * those columns existed. Neither stays NULL after a pass: the champion + team
- * that find "you" come from the same participant the row was synced from, and
- * "no lane opponent" is stored as ''.
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage IS NULL` pick up
+ * rows indexed before those columns existed. None stays NULL after a pass: the
+ * champion + team that find "you" come from the same participant the row was
+ * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
  */
 async function backfillComputedStats(onProgress) {
     const rows = await dbAll(`
@@ -513,7 +515,7 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR patch IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -565,7 +567,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         isRemake: null,
         impactScore: null, impactRank: null, impactTag: null,
         laneOpponent: null,
-        patch: null
+        patch: null,
+        turretDamage: null, objectiveDamage: null, firstDeathAt: null
     };
 
     try {
@@ -644,6 +647,12 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             ? round3(me.totalDamageTaken / Math.max(1, n(me.deaths)))
             : null;
 
+        // Structure damage, and damage to epic monsters (Riot's objective
+        // damage includes buildings, so they're taken out). turretDamage is
+        // always a number here: it doubles as the "indexed" marker (#15).
+        result.turretDamage    = Math.round(n(me.damageDealtToBuildings));
+        result.objectiveDamage = Math.round(Math.max(0, n(me.damageDealtToObjectives) - n(me.damageDealtToBuildings)));
+
         result.multikills = n(me.doubleKills) + n(me.tripleKills) + n(me.quadraKills) + n(me.pentaKills);
 
         if (me.challenges) {
@@ -713,6 +722,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             }
             if (e.killerId === myPId && e.bounty && e.bounty > 300) shutdownsClaimed++;
         }
+        const firstDeath = allEvents.find(e => e.type === 'CHAMPION_KILL' && e.victimId === myPId);
+        result.firstDeathAt        = firstDeath ? firstDeath.timestamp : null;
         result.deathsBefore10      = earlyDeaths;
         result.shutdownsClaimed    = shutdownsClaimed;
         result.shutdownsGiven      = shutdownsGiven;
