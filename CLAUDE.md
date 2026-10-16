@@ -601,6 +601,46 @@ In every expanded match row, under the timeline (`components/gameReportPanel.js`
 - At most three points per section. The report uses `fitWidth` from
   matchTimelineChart.js, like the chart, because the expanded row is as
   wide as the sideways-scrolling table.
+### Item builds (2026-10, issue #7)
+
+- `itemPurchases` column: your purchases as `"itemId:seconds,…"`, oldest
+  first, after `ITEM_UNDO` (undoing a buy removes it; undoing a sale changes
+  nothing). '' = no timeline / nothing bought, NULL = not computed. Written by
+  the computed-stats pipeline; reset to NULL with `laneGaps` when a timeline
+  is downloaded later. Rules in `services/itemBuild.js` (pure, tested).
+- **"Bought at m:ss" in item tooltips:** icons carry `data-bought`;
+  `tooltipSystem.showItemTooltip` adds the line (digits/colon only). Match
+  table from the stored column; expanded row from the full timeline, for all
+  10 players. Items with no purchase event (transformed/upgraded) show none.
+- **Champions page Build order card:** Start (item combos bought in the first
+  60 s), First back (everything within 60 s of the first purchase after
+  that), 1st / 2nd / 3rd item (finished items you still held at the end, in
+  purchase order; **boots left out** of the numbered slots since nearly
+  everyone buys them first). Games, win rate, pick rate; under 5% hidden.
+  Plus "First back: median 3:56 · 49% when earlier · 55% when later".
+- **Economy: Median First Back** card (m:ss). Not benchmarked, and no trend
+  arrow: an earlier back isn't simply better.
+- Win-probability change per item (the optional #3 link) is not done.
+
+### Death map (2026-10, issue #8)
+
+- `deathPositions` column: your deaths as `"x,y,seconds;…"`, turned to the
+  blue side: red-side positions go through `(x, y) → (M − y, M − x)` (M =
+  14980), a reflection across the other diagonal, so top lane stays top
+  lane (flipping both axes would swap top and bottom). '' = none / no
+  timeline. Rules in `services/deathMap.js` (pure, tested).
+- **Death Review → "Where you die"** (`components/deathMapPanel.js`,
+  `#deathMap`, rendered from `renderAnalyticsTab` with the tab's filtered
+  games): Data Dragon's `img/map/map11.png` dimmed, one dot per death, amber
+  → red by how many deaths are within 600 units. "Dense" is relative to the
+  95th percentile, and dots shrink/fade with the count, so hundreds of games
+  still show the map's shape.
+- **Zones by phase:** along the base-to-base diagonal ((x + y) / 2M): < 0.35
+  near your base, > 0.65 enemy territory, else mid-map; phases ≤ 14:00, ≤
+  25:00, later. The takeaway names the biggest change (near-base or
+  enemy-territory share) between the first and last phase, if ≥ 5 points.
+  Coarse by design: the outer parts of the side lanes count as mid-map, so
+  early-game deaths are mostly "mid-map". The panel says so.
 
 ### Remakes are excluded from statistics
 

@@ -5,6 +5,8 @@ const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
 const { computeLaneGaps } = require('./laneGaps');
 const { teammatesOf } = require('./teammates');
+const { purchasesFromTimeline, encodePurchases } = require('./itemBuild');
+const { deathsFromTimeline, encodeDeaths } = require('./deathMap');
 const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
@@ -148,7 +150,8 @@ async function getMatches(limit = null) {
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
                 impactScore, impactRank, impactTag, laneOpponent, patch,
-                turretDamage, objectiveDamage, firstDeathAt, laneGaps
+                turretDamage, objectiveDamage, firstDeathAt, laneGaps,
+                itemPurchases, deathPositions
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -512,6 +515,7 @@ const COMPUTED_STAT_COLUMNS = [
     'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
     'laneGaps',
+    'itemPurchases', 'deathPositions',
     // Was a legacy column; recomputed since the dead/alive rule was fixed
     'objectiveRate',
 ];
@@ -552,7 +556,8 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps IS NULL` pick up
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps` /
+ * `itemPurchases` / `deathPositions IS NULL` pick up
  * rows indexed before those columns existed. None stays NULL after a pass: the
  * champion + team that find "you" come from the same participant the row was
  * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
@@ -563,7 +568,8 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL
+               OR itemPurchases IS NULL OR deathPositions IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -617,7 +623,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         laneOpponent: null,
         patch: null,
         turretDamage: null, objectiveDamage: null, firstDeathAt: null,
-        laneGaps: null
+        laneGaps: null,
+        itemPurchases: null, deathPositions: null
     };
 
     try {
@@ -717,9 +724,16 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
 
         // '' = no lane data for this game; filled in below when there is
         result.laneGaps = '';
+        result.itemPurchases = '';      // #7, '' = no timeline / nothing bought
+        result.deathPositions = '';     // #8, '' = no timeline / no deaths
         if (!timeline || !timeline.info || !timeline.info.frames) return result;
 
         const frames = timeline.info.frames;
+
+        // === What you bought, and where you died (#7, #8) — stored compactly so
+        // the tooltips, build tables and death map never re-parse timelines ===
+        result.itemPurchases  = encodePurchases(purchasesFromTimeline(timeline, myPId));
+        result.deathPositions = encodeDeaths(deathsFromTimeline(timeline, myPId, me.teamId));
 
         // === Gold / XP gap to the lane opponent, minute 0–20 (#12) ===
         if (laneOpponent) {
@@ -935,7 +949,7 @@ async function backfillTimelines(onProgress) {
             const timelineData = await getMatchTimeline(matchId);
             // laneGaps back to NULL: it was stored as '' without a timeline,
             // so the computed-stats backfill has to look at this game again
-            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
+            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL, itemPurchases = NULL, deathPositions = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
             updated++;
             console.log(`[${i + 1}/${rows.length}] Timeline saved for ${matchId}`);
         } catch (err) {

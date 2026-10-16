@@ -4,6 +4,7 @@ const {
 } = require('../services/matchService');
 const { RANK_COLORS } = require('./rankTiers');
 const { benchmarkFor } = require('./roleBenchmarks');
+const { decodePurchases, firstBackStats, firstBackAt } = require('../services/itemBuild');
 const { impactFor } = require('../services/teamImpact');
 const { platesTakenBy } = require('../services/timelineRules');
 
@@ -622,12 +623,17 @@ function calcEconomy(matches) {
         if (teamGold > 0) goldShareArr.push(me.goldEarned / teamGold * 100);
     });
 
+    // First back (#7): from the stored purchases, games with a timeline only
+    const backs = firstBackStats(matches.map(m => ({ firstBackAt: firstBackAt(decodePurchases(m.itemPurchases)), win: m.win === 1 })));
+
     return {
         avgGold:    avg(goldArr),
         avgGoldMin: avg(goldMinArr),
         avgCs:      avg(csArr),
         avgCsMin:   avg(csMinArr),
-        goldShare:  avg(goldShareArr)
+        goldShare:  avg(goldShareArr),
+        firstBackGames: backs.games,
+        firstBackMin:   backs.medianMs === null ? 0 : backs.medianMs / 60000
     };
 }
 
@@ -844,6 +850,10 @@ function computeCards(tabName, matches, prevMatches = []) {
             cards.push(buildCard('eco_cs',        'CS/Game',      tabName, cur.avgCs,      v => fmtInt(v),          'average',    true, true, prev ? prev.avgCs : null));
             cards.push(buildCard('eco_cs_min',    'CS/Min',       tabName, cur.avgCsMin,   v => formatNum(v,1),         'per-minute', true,  true, prev ? prev.avgCsMin : null));
             cards.push(buildCard('eco_gold_share','Gold Share %', tabName, cur.goldShare,  v => formatPct(v/100),       'percentage', false, true, prev ? prev.goldShare : null));
+            // Median time of your first purchase after the opening shop (#7).
+            // No benchmark or trend arrow: an earlier back isn't simply better.
+            const hasBacks = cur.firstBackGames > 0;
+            cards.push(buildCard('eco_first_back', 'Median First Back', tabName, cur.firstBackMin, v => hasBacks ? fmtClock(v) : '--', 'average', false, false, null));
             break;
         }
 

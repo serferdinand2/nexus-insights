@@ -346,7 +346,12 @@ function initDatabase() {
         -- Issue #12: {"gold":[…],"xp":[…]} gap to the lane opponent per minute
         -- 0–20 (services/laneGaps.js). '' = none (no opponent / no timeline),
         -- NULL = not computed.
-        laneGaps TEXT
+        laneGaps TEXT,
+        -- Issue #7: your purchases "itemId:sec,…" after undos (services/itemBuild.js);
+        -- issue #8: your deaths "x,y,sec;…" seen from the blue side
+        -- (services/deathMap.js). '' = none / no timeline, NULL = not computed.
+        itemPurchases TEXT,
+        deathPositions TEXT
       )
     `);
 
@@ -509,7 +514,9 @@ function initDatabase() {
       'turretDamage INTEGER',
       'objectiveDamage INTEGER',
       'firstDeathAt INTEGER',
-      'laneGaps TEXT'
+      'laneGaps TEXT',
+      'itemPurchases TEXT',
+      'deathPositions TEXT'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion

@@ -2,6 +2,8 @@
 
 // Get position icon URL from Community Dragon
 const { escapeHtml } = require('./dom');
+const { decodePurchases, lastBoughtAt } = require('../services/itemBuild');
+const { formatClock } = require('../services/matchTimeline');
 
 function getPositionIcon(teamPosition) {
     if (!teamPosition) return null;
@@ -121,19 +123,17 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
 
     // Build items HTML for table display in 2 rows (smaller icons)
     const items = [match.item0, match.item1, match.item2, match.item3, match.item4, match.item5, match.item6];
-    const itemsRow1 = items.slice(0, 4).map(itemId => {
+    // "Bought at" in the item tooltip, from the stored purchases (#7)
+    const bought = lastBoughtAt(decodePurchases(match.itemPurchases));
+    const itemSlot = itemId => {
         if (itemId && itemId > 0) {
-            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}" onerror="this.style.display='none'"></div>`;
+            const at = bought.has(itemId) ? ` data-bought="${formatClock(bought.get(itemId))}"` : '';
+            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}"${at} onerror="this.style.display='none'"></div>`;
         }
         return `<div class="table-item-slot"></div>`;
-    }).join('');
-
-    const itemsRow2 = items.slice(4, 7).map(itemId => {
-        if (itemId && itemId > 0) {
-            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}" onerror="this.style.display='none'"></div>`;
-        }
-        return `<div class="table-item-slot"></div>`;
-    }).join('');
+    };
+    const itemsRow1 = items.slice(0, 4).map(itemSlot).join('');
+    const itemsRow2 = items.slice(4, 7).map(itemSlot).join('');
 
     // Remakes stay visible in the list but are excluded from every statistic,
     // so they're labelled to explain why the counts don't add up.
