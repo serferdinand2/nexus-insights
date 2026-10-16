@@ -3,6 +3,8 @@ const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
+const { computeLaneGaps } = require('./laneGaps');
+const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
@@ -145,7 +147,7 @@ async function getMatches(limit = null) {
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
                 impactScore, impactRank, impactTag, laneOpponent, patch,
-                turretDamage, objectiveDamage, firstDeathAt
+                turretDamage, objectiveDamage, firstDeathAt, laneGaps
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -466,6 +468,9 @@ const COMPUTED_STAT_COLUMNS = [
     'laneOpponent',
     'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
+    'laneGaps',
+    // Was a legacy column; recomputed since the dead/alive rule was fixed
+    'objectiveRate',
 ];
 
 /**
@@ -476,7 +481,7 @@ const COMPUTED_STAT_COLUMNS = [
  */
 const LEGACY_STAT_COLUMNS = [
     'csDiff15', 'goldDiff15', 'xpDiff15', 'firstBlood', 'dmgGoldRatio',
-    'isolatedDeaths', 'objectiveRate',
+    'isolatedDeaths',
 ];
 
 /**
@@ -504,7 +509,7 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank` / `laneOpponent` / `patch` / `turretDamage IS NULL` pick up
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps IS NULL` pick up
  * rows indexed before those columns existed. None stays NULL after a pass: the
  * champion + team that find "you" come from the same participant the row was
  * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
@@ -515,7 +520,7 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR patch IS NULL OR turretDamage IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -568,7 +573,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         impactScore: null, impactRank: null, impactTag: null,
         laneOpponent: null,
         patch: null,
-        turretDamage: null, objectiveDamage: null, firstDeathAt: null
+        turretDamage: null, objectiveDamage: null, firstDeathAt: null,
+        laneGaps: null
     };
 
     try {
@@ -656,13 +662,9 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         result.multikills = n(me.doubleKills) + n(me.tripleKills) + n(me.quadraKills) + n(me.pentaKills);
 
         if (me.challenges) {
-            result.platesTaken = n(me.challenges.turretPlatesTaken);
             result.soloKillDiff = n(me.challenges.soloKills)
                 - n(laneOpponent?.challenges?.soloKills);
             result.visionAdvantage = round3(n(me.challenges.visionScoreAdvantageLaneOpponent));
-        }
-        if (laneOpponent?.challenges) {
-            result.platesLost = n(laneOpponent.challenges.turretPlatesTaken);
         }
 
         // Parse timeline if available
@@ -670,9 +672,18 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             ? (typeof timelineData === 'string' ? JSON.parse(timelineData) : timelineData)
             : null;
 
+        // '' = no lane data for this game; filled in below when there is
+        result.laneGaps = '';
         if (!timeline || !timeline.info || !timeline.info.frames) return result;
 
         const frames = timeline.info.frames;
+
+        // === Gold / XP gap to the lane opponent, minute 0–20 (#12) ===
+        if (laneOpponent) {
+            const oppPId = laneOpponent.participantId || (participants.indexOf(laneOpponent) + 1);
+            const gaps = computeLaneGaps(frames, myPId, oppPId);
+            if (gaps) result.laneGaps = JSON.stringify(gaps);
+        }
 
         // === CSD@15, GD@15, XPD@15 ===
         // Frame index 15 = 15 minutes (each frame is 1 minute). Games that
@@ -777,47 +788,26 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         }
         result.isolatedDeaths = isolatedCount;
 
-        // === Objective Rate ===
-        // % of objectives (drakes, barons, grubs) your team secured while you were alive
-        const teamObjEvents = allEvents.filter(e =>
-            e.type === 'ELITE_MONSTER_KILL' &&
-            myTeamPIds.concat([myPId]).includes(e.killerId)
-        );
+        // === Plates (before 14:00), yours and your lane opponent's ===
+        // From the timeline: challenges.turretPlatesTaken also counted the
+        // plate events Riot keeps sending after plates fall off.
+        result.platesTaken = platesTakenBy(allEvents, myPId);
+        if (laneOpponent) {
+            result.platesLost = platesTakenBy(allEvents,
+                laneOpponent.participantId || (participants.indexOf(laneOpponent) + 1));
+        }
 
+        // === Objective Rate ===
+        // % of your team's epic monsters (dragons, Baron, Herald, grubs,
+        // Atakhan) taken while you were alive. Dead = from a death until the
+        // respawn timer for your level and the game time ran out.
+        const myTeamIds = new Set(myTeamPIds.concat([myPId]));
+        const teamObjEvents = allEvents.filter(e => e.type === 'ELITE_MONSTER_KILL' &&
+            (e.killerTeamId != null ? e.killerTeamId === me.teamId : myTeamIds.has(e.killerId)));
         if (teamObjEvents.length > 0) {
-            // Check if player was alive at each objective kill
-            const myDeathTimestamps = myDeaths.map(d => d.timestamp);
-            // Build alive periods: start=0, die, respawn (~20-50s based on level, use next frame alive)
-            let aliveCount = 0;
-            for (const obj of teamObjEvents) {
-                // Simple check: was the player's most recent death before this event,
-                // and enough time has passed to respawn?
-                const recentDeath = myDeathTimestamps.filter(t => t < obj.timestamp).pop();
-                if (!recentDeath) {
-                    // Never died before this objective
-                    aliveCount++;
-                } else {
-                    // Check if respawned: at least 15-60s based on game time
-                    // Use frame data to check if player has moved since death
-                    const frameIdx = Math.min(Math.floor(obj.timestamp / 60000), frames.length - 1);
-                    const frame = frames[frameIdx];
-                    if (frame && frame.participantFrames && frame.participantFrames[myPId]) {
-                        const pos = frame.participantFrames[myPId].position;
-                        // If player position is not in fountain (roughly), they're alive
-                        if (pos) {
-                            const inFountain = (me.teamId === 100)
-                                ? (pos.x < 1500 && pos.y < 1500)
-                                : (pos.x > 13500 && pos.y > 13500);
-                            // If death was very recent (within 30s) and in fountain, probably dead
-                            if (obj.timestamp - recentDeath < 30000 && inFountain) {
-                                continue; // was dead
-                            }
-                            aliveCount++;
-                        }
-                    }
-                }
-            }
-            result.objectiveRate = parseFloat(((aliveCount / teamObjEvents.length) * 100).toFixed(1));
+            const dead = deadWindows(allEvents, frames, myPId);
+            const alive = teamObjEvents.filter(e => !isDeadAt(dead, e.timestamp)).length;
+            result.objectiveRate = parseFloat(((alive / teamObjEvents.length) * 100).toFixed(1));
         }
 
     } catch (e) {
@@ -855,7 +845,9 @@ async function backfillTimelines(onProgress) {
         const matchId = rows[i].matchId;
         try {
             const timelineData = await getMatchTimeline(matchId);
-            await dbRun("UPDATE matches SET timelineJson = ? WHERE matchId = ?", [compressJson(timelineData), matchId]);
+            // laneGaps back to NULL: it was stored as '' without a timeline,
+            // so the computed-stats backfill has to look at this game again
+            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
             updated++;
             console.log(`[${i + 1}/${rows.length}] Timeline saved for ${matchId}`);
         } catch (err) {

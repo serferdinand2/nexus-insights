@@ -5,6 +5,7 @@ const {
 const { RANK_COLORS } = require('./rankTiers');
 const { benchmarkFor } = require('./roleBenchmarks');
 const { impactFor } = require('../services/teamImpact');
+const { platesTakenBy } = require('../services/timelineRules');
 
 // Benchmark thresholds per stat — values represent the MINIMUM needed to qualify for that tier
 // For "lower is better" stats (higherIsBetter=false), value must be AT OR BELOW the threshold
@@ -49,7 +50,6 @@ const STAT_BENCHMARKS = {
   obj_herald:      { iron:0.35, bronze:0.45, silver:0.55, gold:0.65, platinum:0.75, emerald:0.85, diamond:0.95, master:1.05, grandmaster:1.15, challenger:1.25 },
   obj_inhib:       { iron:0.25, bronze:0.35, silver:0.45, gold:0.55, platinum:0.65, emerald:0.78, diamond:0.90, master:1.05, grandmaster:1.20, challenger:1.35 },
   obj_steal:       { iron:0.01, bronze:0.02, silver:0.03, gold:0.04, platinum:0.05, emerald:0.06, diamond:0.08, master:0.10, grandmaster:0.12, challenger:0.14 },
-  obj_rate:        { iron:35, bronze:39, silver:43, gold:47, platinum:50, emerald:54, diamond:58, master:62, grandmaster:66, challenger:70 },
   // Vision
   vis_score:       { iron:18, bronze:22, silver:26, gold:30, platinum:34, emerald:38, diamond:42, master:47, grandmaster:52, challenger:57 },
   vis_vs_min:      { iron:0.65, bronze:0.78, silver:0.90, gold:1.02, platinum:1.15, emerald:1.28, diamond:1.42, master:1.58, grandmaster:1.75, challenger:1.95 },
@@ -64,7 +64,6 @@ const STAT_BENCHMARKS = {
   eco_cs_min:      { iron:4.5, bronze:5.0, silver:5.5, gold:6.0, platinum:6.5, emerald:7.0, diamond:7.5, master:8.0, grandmaster:8.3, challenger:8.6 },
   // Macro
   mac_fb:          { iron:5, bronze:7, silver:9, gold:11, platinum:13, emerald:15, diamond:17, master:19, grandmaster:21, challenger:23 },
-  mac_obj_rate:    { iron:35, bronze:39, silver:43, gold:47, platinum:50, emerald:54, diamond:58, master:62, grandmaster:66, challenger:70 },
   mac_dragon_ctl:  { iron:35, bronze:39, silver:43, gold:47, platinum:50, emerald:53, diamond:56, master:59, grandmaster:62, challenger:65 },
   mac_baron_ctl:   { iron:30, bronze:34, silver:38, gold:42, platinum:46, emerald:50, diamond:54, master:58, grandmaster:62, challenger:66 },
   mac_short_wr:    { iron:45, bronze:47, silver:49, gold:51, platinum:53, emerald:55, diamond:57, master:59, grandmaster:61, challenger:63 },
@@ -278,20 +277,20 @@ function calcLanePhase(matches) {
 
         // Challenges-based stats only need rawJson
         if (me.challenges) {
-            platesTaken += me.challenges.turretPlatesTaken || 0;
             const mySoloKills   = me.challenges.soloKills || 0;
             const enemySoloKills = enemy && enemy.challenges ? enemy.challenges.soloKills || 0 : 0;
             soloKillDiff += (mySoloKills - enemySoloKills);
         }
-        if (enemy && enemy.challenges) {
-            platesLost += enemy.challenges.turretPlatesTaken || 0;
-        }
-
         // Timeline-dependent stats (skipped gracefully if timeline absent)
         if (!timeline) return;
 
         const frames = timeline.info ? timeline.info.frames : timeline.frames;
         const pId = me.participantId;
+
+        // Plates before 14:00, same rule as the stored column
+        const events = frames.flatMap(f => f.events || []);
+        platesTaken += platesTakenBy(events, pId);
+        if (enemy) platesLost += platesTakenBy(events, enemy.participantId);
 
         const getCsAt = (minute) => {
             const frame = frames.find(f => f.timestamp >= minute * 60 * 1000) || frames[frames.length - 1];
@@ -813,7 +812,9 @@ function computeCards(tabName, matches, prevMatches = []) {
             cards.push(buildCard('obj_herald',  'Heralds/Game',     tabName, cur.heralds,   v => formatNum(v,1),  'average',    true, true, prev ? prev.heralds : null));
             cards.push(buildCard('obj_inhib',   'Inhibitors/Game',  tabName, cur.inhibs,    v => formatNum(v,1),  'average',    true, true, prev ? prev.inhibs : null));
             cards.push(buildCard('obj_steal',   'Obj Steals/Game',  tabName, cur.steals,    v => formatNum(v,1),  'average',    true, true, prev ? prev.steals : null));
-            cards.push(buildCard('obj_rate',    'Objective Rate',   tabName, cur.objRate,   v => formatPct(v/100), 'percentage', true,  true, prev ? prev.objRate : null));
+            // Not benchmarked: once it was computed correctly it sits at 93–98%
+            // for every role, far above the old 35–70% ladder
+            cards.push(buildCard('obj_rate',    'Alive for Objectives', tabName, cur.objRate, v => formatPct(v/100), 'percentage', false, true, prev ? prev.objRate : null));
             // Not benchmarked: a jungler does ~30x a top laner's objective
             // damage, so one ladder over mixed roles would mislabel most games
             const hasDmg = cur.dmgGames > 0;
@@ -851,7 +852,7 @@ function computeCards(tabName, matches, prevMatches = []) {
             const prev = calcMacro(prevMatches);
             cards.push(buildCard('mac_dur',       'Avg Game Length',    tabName, cur.avgDur,   v => formatNum(v,1)+'m', 'average',    false, true,  prev ? prev.avgDur : null));
             cards.push(buildCard('mac_fb',        'First Blood Rate',   tabName, cur.fbRate,   v => formatPct(v/100),   'percentage', true,  true,  prev ? prev.fbRate : null));
-            cards.push(buildCard('mac_obj_rate',  'Objective Rate',     tabName, cur.objRate,  v => formatPct(v/100),   'percentage', true,  true,  prev ? prev.objRate : null));
+            cards.push(buildCard('mac_obj_rate',  'Alive for Objectives', tabName, cur.objRate, v => formatPct(v/100), 'percentage', false, true,  prev ? prev.objRate : null));
             cards.push(buildCard('mac_dragon_ctl','Dragon Control %',   tabName, cur.dragonCtl,v => formatPct(v/100),   'percentage', true, true,  prev ? prev.dragonCtl : null));
             cards.push(buildCard('mac_baron_ctl', 'Baron Control %',    tabName, cur.baronCtl, v => formatPct(v/100),   'percentage', true, true,  prev ? prev.baronCtl : null));
             if (cur.shortWr !== null) cards.push(buildCard('mac_short_wr', `Short (<25m) WR (${cur.shortCount}g)`, tabName, cur.shortWr, v => formatPct(v/100), 'percentage', true, true, prev && prev.shortWr !== null ? prev.shortWr : null));

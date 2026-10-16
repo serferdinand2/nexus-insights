@@ -24,8 +24,8 @@ const BASELINE   = 20;   // a game is compared with the 20 before it
  * The stats in the game report depend on the role played that game: four
  * general ones + four for the role (roleBenchmarks.js). Their rank badges use
  * per-role thresholds, and "usual" is the 20 earlier games in the SAME role.
- * (obj_rate and plates_taken are left out: objectiveRate is 100 in practically
- * every stored game and plates are far off the benchmark scale.)
+ * (obj_rate and plates_taken are left out: both were miscomputed until the
+ * timelineRules.js fix, and obj_rate sits at 93–98% for everyone anyway.)
  */
 const Roles = require('./roleBenchmarks');
 const { RANK_COLORS } = require('./rankTiers');

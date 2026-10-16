@@ -6059,3 +6059,46 @@ tr.is-low .ch-wr.is-low {
 .ch-note {
     margin-top: 10px;
 }
+
+/* ── Lane Phase: gold/XP gap to the lane opponent per minute (#12) ── */
+.lane-gap {
+    margin-top: var(--gutter);
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+}
+.lane-gap[hidden] { display: none; }
+.lg-head { flex-wrap: wrap; }
+.lg-legend {
+    margin-left: auto;
+    display: flex;
+    gap: 12px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+}
+.lg-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.lg-swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.lg-swatch--gold { background: var(--gold); }
+.lg-swatch--xp { background: var(--accent-primary); }
+.lg-swatch--hollow { border: 1.5px solid var(--text-tertiary); width: 8px; height: 8px; }
+.lg-chart { position: relative; height: 220px; }
+.lg-chart canvas { width: 100%; height: 100%; display: block; }
+.lg-tip {
+    position: absolute;
+    top: 8px;
+    pointer-events: none;
+    background: rgba(10, 14, 20, 0.94);
+    border: 1px solid var(--line-strong);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 11px;
+    min-width: 110px;
+    z-index: 2;
+}
+.lg-tip[hidden] { display: none; }
+.lg-tip-time { color: var(--text-secondary); font-weight: 700; margin-bottom: 4px; }
+.lg-tip-row { display: flex; justify-content: space-between; gap: 12px; color: var(--text-tertiary); }
+.lg-tip-row b { color: var(--text-primary); }
+.lg-tip-games { color: var(--text-tertiary); margin-top: 4px; }
+.lg-empty { color: var(--text-tertiary); font-size: 12px; padding: 8px 0 4px; }
