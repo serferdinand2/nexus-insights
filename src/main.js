@@ -308,6 +308,24 @@ function createWindow({ startHidden = false } = {}) {
     }
   });
 
+  // The window's process can die, e.g. sqlite3 aborts when a reload tears the
+  // page down mid-query (#34). Nothing else would bring it back, and with
+  // close-to-tray the user may not notice that LP tracking stopped. Reload it,
+  // at most 3 times a minute so a page that crashes on load can't loop.
+  const crashes = [];
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`Window process gone: ${details.reason} (exit code ${details.exitCode})`);
+    if (details.reason === 'clean-exit' || win.isDestroyed()) return;
+    const now = Date.now();
+    while (crashes.length && now - crashes[0] > 60000) crashes.shift();
+    if (crashes.length >= 3) {
+      console.error('Window crashed 3 times in a minute; not reloading again.');
+      return;
+    }
+    crashes.push(now);
+    setTimeout(() => { if (!win.isDestroyed()) win.webContents.reload(); }, 500);
+  });
+
   return win;
 }
 
