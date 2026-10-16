@@ -55,6 +55,28 @@ async function runMigrations() {
   await migrateCompressJson();
   await migrateLpResolution();
   await migrateLpGameCounts();
+  await migrateLpCheckpoints();
+}
+
+/**
+ * Migration 5 — LP checkpoints (#5). A checkpoint is an lp_history row you
+ * entered by hand (`manual = 1`): a known rank on a date, which anchors the
+ * LP estimates for games played before tracking. It replaces the hard-coded
+ * SOLO_LP_SEED, which wrote the same kind of row (noon UTC, no wins/losses)
+ * into every database it ran against; those rows become checkpoints too, so
+ * they can be deleted where they don't belong.
+ */
+async function migrateLpCheckpoints() {
+  const done = await dbGetAsync('SELECT version FROM schema_version WHERE version = 5');
+  if (done) return;
+  const cols = (await dbAllAsync('PRAGMA table_info(lp_history)')).map(c => c.name);
+  if (!cols.includes('manual')) await dbRunAsync('ALTER TABLE lp_history ADD COLUMN manual INTEGER');
+  await dbRunAsync(
+    `UPDATE lp_history SET manual = 1
+     WHERE manual IS NULL AND wins IS NULL AND recorded_at % 86400000 = 43200000`
+  );
+  await dbRunAsync('INSERT INTO schema_version (version, applied_at) VALUES (5, ?)', [Date.now()]);
+  console.log('Migration 5 complete — LP checkpoints.');
 }
 
 /**
@@ -327,7 +349,8 @@ function initDatabase() {
         recorded_at INTEGER NOT NULL,
         matchId TEXT,
         wins INTEGER,
-        losses INTEGER
+        losses INTEGER,
+        manual INTEGER
       )
     `);
     // NOTE: deliberately NOT unique on (queue, recorded_date) any more — that
@@ -533,30 +556,6 @@ function recordLpReading(queue, tier, rank, lp, { wins = null, losses = null } =
 }
 
 /**
- * Seed a historical LP snapshot — skips the day if anything is already logged
- * for it. (The old INSERT OR IGNORE relied on the unique index that migration
- * 3 removes, so the emptiness check now has to be explicit.)
- */
-function seedLpSnapshot(queue, tier, rank, lp, date) {
-  return new Promise((resolve, reject) => {
-    db.get(
-      'SELECT 1 AS hit FROM lp_history WHERE queue = ? AND recorded_date = ? LIMIT 1',
-      [queue, date],
-      (err, row) => {
-        if (err) return reject(err);
-        if (row) return resolve({ seeded: false });
-        db.run(
-          `INSERT INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?)`,
-          [queue, tier, rank, lp, date, new Date(date + 'T12:00:00Z').getTime()],
-          function (insErr) { if (insErr) reject(insErr); else resolve({ seeded: true }); }
-        );
-      }
-    );
-  });
-}
-
-/**
  * Daily LP history for a queue, oldest first — the last reading of each day.
  * Keeps the LP progression chart on one point per day now that the table can
  * hold several.
@@ -647,9 +646,56 @@ async function getLpDeltasByMatch() {
   return out;
 }
 
+const CHECKPOINT_TIERS = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND',
+                          'MASTER', 'GRANDMASTER', 'CHALLENGER'];
+
+/**
+ * Add an LP checkpoint: your rank on a date, entered by hand. Stored at noon
+ * UTC of that date, like the old seed rows. Rejects anything malformed.
+ */
+async function addLpCheckpoint(queue, tier, rank, lp, date) {
+  const T = String(tier || '').toUpperCase();
+  const apex = ['MASTER', 'GRANDMASTER', 'CHALLENGER'].includes(T);
+  if (queue !== 'solo' && queue !== 'flex') throw new Error('queue must be solo or flex');
+  if (!CHECKPOINT_TIERS.includes(T)) throw new Error('unknown tier');
+  if (!apex && !['I', 'II', 'III', 'IV'].includes(rank)) throw new Error('division must be I–IV');
+  const n = Number(lp);
+  if (!Number.isInteger(n) || n < 0 || (!apex && n > 99)) throw new Error(apex ? 'LP must be 0 or more' : 'LP must be 0–99');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date)) || Number.isNaN(Date.parse(date))) throw new Error('date must be YYYY-MM-DD');
+
+  const at = new Date(date + 'T12:00:00Z').getTime();
+  const id = await new Promise((resolve, reject) => db.run(
+    `INSERT INTO lp_history (queue, tier, rank, lp, recorded_date, recorded_at, manual)
+     VALUES (?, ?, ?, ?, ?, ?, 1)`,
+    [queue, T, apex ? 'I' : rank, n, date, at],
+    function (err) { if (err) reject(err); else resolve(this.lastID); }
+  ));
+  await attachLpReadingsToMatches();
+  return { id };
+}
+
+/** Delete a checkpoint. Never touches tracked readings. Resolves to rows deleted. */
+async function deleteLpCheckpoint(id) {
+  const changes = await new Promise((resolve, reject) => db.run(
+    'DELETE FROM lp_history WHERE id = ? AND manual = 1', [id],
+    function (err) { if (err) reject(err); else resolve(this.changes); }
+  ));
+  if (changes) await attachLpReadingsToMatches();
+  return changes;
+}
+
+/** Every checkpoint, by queue then date. */
+function getLpCheckpoints() {
+  return dbAllAsync(
+    `SELECT id, queue, recorded_date, tier, rank, lp FROM lp_history
+     WHERE manual = 1 ORDER BY queue ASC, recorded_at ASC`
+  );
+}
+
 module.exports = {
   initDatabase, db, dbPath,
-  saveLpSnapshot, seedLpSnapshot, getLpHistory,
+  saveLpSnapshot, getLpHistory,
   recordLpReading, getLpReadings, attachLpReadingsToMatches,
-  getLpDeltasByMatch, absoluteLp
+  getLpDeltasByMatch, absoluteLp,
+  migrateLpCheckpoints, addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 };

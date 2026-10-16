@@ -314,13 +314,29 @@
 
                             <!-- Row 1: LP charts -->
                             <div class="ta-right-row">
+                                <!-- One point per ranked game; hollow = estimated (#5).
+                                     Checkpoints: components/lpCheckpoints.js -->
                                 <div class="ta-card ta-card--lp">
-                                    <div class="insight-mini-label">Solo/Duo LP</div>
+                                    <div class="lp-card-head">
+                                        <div class="insight-mini-label">Solo/Duo LP</div>
+                                        <button type="button" class="lp-ckpt-btn" data-queue="solo"
+                                                title="Known ranks on past dates. Games before LP tracking are estimated from these.">Checkpoints</button>
+                                    </div>
                                     <canvas id="lpChartSolo" class="lp-canvas"></canvas>
+                                    <div class="lp-tip" id="lpTipSolo"></div>
+                                    <div class="lp-summary" id="lpSummarySolo"></div>
+                                    <div class="lp-ckpt-pop" id="lpCkptSolo" hidden></div>
                                 </div>
                                 <div class="ta-card ta-card--lp">
-                                    <div class="insight-mini-label">Flex LP</div>
+                                    <div class="lp-card-head">
+                                        <div class="insight-mini-label">Flex LP</div>
+                                        <button type="button" class="lp-ckpt-btn" data-queue="flex"
+                                                title="Known ranks on past dates. Games before LP tracking are estimated from these.">Checkpoints</button>
+                                    </div>
                                     <canvas id="lpChartFlex" class="lp-canvas"></canvas>
+                                    <div class="lp-tip" id="lpTipFlex"></div>
+                                    <div class="lp-summary" id="lpSummaryFlex"></div>
+                                    <div class="lp-ckpt-pop" id="lpCkptFlex" hidden></div>
                                 </div>
                             </div>
 

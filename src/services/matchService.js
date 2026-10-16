@@ -1023,13 +1023,15 @@ async function fetchRanksForNewMatches(matchIds, onProgress) {
 }
 
 const {
-    saveLpSnapshot, seedLpSnapshot, getLpHistory,
+    saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches,
-    getLpDeltasByMatch, absoluteLp
+    getLpDeltasByMatch, absoluteLp,
+    addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 } = require('./database');
 
-module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, seedLpSnapshot, getLpHistory,
+module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
+    addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,
     getCoachingData, saveComputedStats, backfillComputedStats,
     computeAdvancedStatsForMatch, COMPUTED_STAT_COLUMNS };

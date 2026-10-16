@@ -3,8 +3,10 @@
  * Reads window.matchesData at call-time for match data.
  */
 
-const { saveLpSnapshot, seedLpSnapshot, getLpHistory } = require('../services/matchService');
+const { getLpReadings, getLpDeltasByMatch } = require('../services/matchService');
+const { buildLpEstimates, nextDivision, rankLabel } = require('../services/lpEstimate');
 const { wrColor, wrTextColor } = require('./winRateColor');
+const { escapeHtml } = require('./dom');
 
 // ---------------------------------------------------------------------------
 // CALENDAR NAVIGATION STATE  (module-scoped — only used by this file)
@@ -20,27 +22,6 @@ const CAL_MONTHS = [
 // ---------------------------------------------------------------------------
 // LP PROGRESSION CONSTANTS
 // ---------------------------------------------------------------------------
-
-// Historical Solo/Duo snapshots (INSERT OR IGNORE — will never overwrite live data)
-const SOLO_LP_SEED = [
-    { date: '2026-01-30', tier: 'PLATINUM', rank: 'IV', lp: 86 },
-    { date: '2026-02-21', tier: 'PLATINUM', rank: 'II', lp: 76 },
-    { date: '2026-03-01', tier: 'PLATINUM', rank: 'II', lp: 76 },
-    { date: '2026-03-08', tier: 'PLATINUM', rank: 'II', lp: 76 },
-    { date: '2026-03-20', tier: 'PLATINUM', rank: 'I',  lp: 26 },
-    { date: '2026-03-22', tier: 'PLATINUM', rank: 'I',  lp: 26 },
-    { date: '2026-03-30', tier: 'EMERALD',  rank: 'IV', lp: 1  },
-    { date: '2026-04-05', tier: 'EMERALD',  rank: 'IV', lp: 1  },
-    { date: '2026-04-15', tier: 'EMERALD',  rank: 'IV', lp: 16 },
-    { date: '2026-04-19', tier: 'EMERALD',  rank: 'IV', lp: 3  },
-    { date: '2026-04-29', tier: 'EMERALD',  rank: 'IV', lp: 48 },
-    { date: '2026-05-08', tier: 'EMERALD',  rank: 'IV', lp: 56 },
-    { date: '2026-05-10', tier: 'EMERALD',  rank: 'IV', lp: 56 },
-    { date: '2026-05-16', tier: 'EMERALD',  rank: 'IV', lp: 56 },
-    { date: '2026-05-17', tier: 'EMERALD',  rank: 'IV', lp: 39 },
-    { date: '2026-05-18', tier: 'EMERALD',  rank: 'IV', lp: 45 },
-    { date: '2026-05-19', tier: 'EMERALD',  rank: 'IV', lp: 51 },
-];
 
 const { RANK_COLORS_UC: LP_TIER_COLORS } = require('./rankTiers');
 
@@ -87,20 +68,6 @@ function makeTierGradient(ctx, top, height, minAbs, maxAbs, alpha) {
     return grad;
 }
 const LP_TIER_SHORT = { IRON:'I', BRONZE:'B', SILVER:'S', GOLD:'G', PLATINUM:'P', EMERALD:'E', DIAMOND:'D', MASTER:'M', GRANDMASTER:'GM', CHALLENGER:'C' };
-const LP_RANK_ORDER = { IV:0, III:1, II:2, I:3 };
-const LP_RANK_SHORT = { IV:'4', III:'3', II:'2', I:'1' };
-
-function getLpAbsolute(tier, rank, lp) {
-    const ti = LP_TIER_NAMES.indexOf((tier || '').toUpperCase());
-    if (ti === -1) return lp;
-    return ti * 400 + (LP_RANK_ORDER[rank] ?? 0) * 100 + (lp || 0);
-}
-
-function getLpPointLabel(tier, rank, lp) {
-    const s = LP_TIER_SHORT[(tier || '').toUpperCase()] || tier;
-    const r = LP_RANK_SHORT[rank] || rank;
-    return `${s}${r} ${lp}LP`;
-}
 
 function hexToRgba(hex, alpha) {
     const r = parseInt(hex.slice(1,3), 16);
@@ -280,41 +247,33 @@ window.initCalendar = function (matchesOverride) {
 };
 
 // ---------------------------------------------------------------------------
-// LP PROGRESSION CHARTS
+// LP PROGRESSION CHARTS — one point per ranked game (#5)
 // ---------------------------------------------------------------------------
 
 /**
- * Seed historical LP snapshots. These are INSERT OR IGNORE, so re-running is
- * harmless — but it used to run on EVERY chart render (18 sequential DB
- * round-trips each time the calendar redrew, which is every filter change).
- * Now it runs at most once per session and every later call reuses the promise.
+ * LP for every ranked game: measured where a reading exists, estimated from
+ * your usual gain/loss elsewhere and fitted between known readings and
+ * checkpoints (services/lpEstimate.js). The Match History LP column and
+ * these charts both read window.lpEstimates, so they always agree.
  */
-let lpSeedPromise = null;
-
-function seedLpHistoryOnce() {
-    if (lpSeedPromise) return lpSeedPromise;
-
-    lpSeedPromise = (async () => {
-        await Promise.all(
-            SOLO_LP_SEED.map(pt => seedLpSnapshot('solo', pt.tier, pt.rank, pt.lp, pt.date))
-        );
-        const flexHist = await getLpHistory('flex');
-        if (flexHist.length === 0) {
-            await seedLpSnapshot('flex', 'GOLD', 'I', 78, new Date().toISOString().slice(0, 10));
-        }
-    })().catch(e => {
-        console.warn('LP seed failed:', e);
-        lpSeedPromise = null; // allow a retry on the next render
-    });
-
-    return lpSeedPromise;
-}
+window.refreshLpEstimates = async function () {
+    const [deltas, solo, flex] = await Promise.all([
+        getLpDeltasByMatch().catch(() => window.lpDeltas || {}),
+        getLpReadings('solo'),
+        getLpReadings('flex'),
+    ]);
+    window.lpDeltas = deltas;
+    window.lpEstimates = buildLpEstimates(window.matchesData || [], { solo, flex }, deltas);
+    return window.lpEstimates;
+};
 
 // Which queue/colour each canvas draws, so a resize can redraw it unattended
 const LP_CHARTS = [
-    { canvasId: 'lpChartSolo', queue: 'solo', color: '#4fc3f7' },
-    { canvasId: 'lpChartFlex', queue: 'flex', color: '#a78bfa' },
+    { canvasId: 'lpChartSolo', queue: 'solo', tipId: 'lpTipSolo', summaryId: 'lpSummarySolo' },
+    { canvasId: 'lpChartFlex', queue: 'flex', tipId: 'lpTipFlex', summaryId: 'lpSummaryFlex' },
 ];
+const LP_CHART_GAMES = 40;           // newest games shown per chart
+const lpChartGeometry = new Map();   // canvasId → [{ x, y, p }] for hover / click
 
 /**
  * A canvas has two sizes: its CSS box and its bitmap. drawLpChart sizes the
@@ -348,8 +307,7 @@ function observeLpChartResize() {
             if (spec._frame) cancelAnimationFrame(spec._frame);
             spec._frame = requestAnimationFrame(() => {
                 spec._frame = null;
-                drawLpChart(spec.canvasId, spec.queue, spec.color)
-                    .catch(e => console.warn('LP chart redraw failed:', e));
+                drawLpChart(spec);
             });
         }
     });
@@ -361,39 +319,42 @@ function observeLpChartResize() {
 }
 
 window.renderLpCharts = async function () {
-    await seedLpHistoryOnce();
-    invalidateLpHistoryCache(); // a sync may have added new snapshots
-    await Promise.all(LP_CHARTS.map(c => drawLpChart(c.canvasId, c.queue, c.color)));
+    try {
+        await window.refreshLpEstimates();
+    } catch (e) {
+        console.warn('LP estimates unavailable:', e.message);
+    }
+    LP_CHARTS.forEach(spec => { wireLpChart(spec); drawLpChart(spec); renderLpSummary(spec); });
     observeLpChartResize();
 };
 
-// LP history barely changes, but a resize can trigger many redraws — cache it
-// so dragging the window edge doesn't fire a DB query per frame.
-const lpHistoryCache = new Map();
+// Older callers drop a cache before redrawing; renderLpCharts now always
+// reloads the readings, so there is nothing to drop.
+window.invalidateLpCache = function () {};
 
-function invalidateLpHistoryCache() { lpHistoryCache.clear(); }
+/** +21 / −24 / 0, with a real minus sign (a hyphen next to "~" reads as "~~"). */
+const signed = v => (v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0');
 
-// The LP watcher writes new readings behind the chart's back, so it needs a
-// way to drop the cache before asking for a redraw.
-window.invalidateLpCache = invalidateLpHistoryCache;
-
-async function getLpHistoryCached(queue) {
-    if (!lpHistoryCache.has(queue)) {
-        lpHistoryCache.set(queue, await getLpHistory(queue));
-    }
-    return lpHistoryCache.get(queue);
+/** 1079 → "S2 79LP", 2945 → "M+ 145LP" (labels on the chart). */
+function shortLpLabel(abs) {
+    if (abs >= LP_TIER_NAMES.length * 400) return `M+ ${Math.round(abs - LP_TIER_NAMES.length * 400)}LP`;
+    const v = Math.max(0, Math.round(abs));
+    const tier = LP_TIER_NAMES[Math.floor(v / 400)];
+    return `${LP_TIER_SHORT[tier]}${4 - Math.floor((v % 400) / 100)} ${v % 100}LP`;
 }
 
-async function drawLpChart(canvasId, queue, lineColor) {
-    const canvas = document.getElementById(canvasId);
+function lpSeriesFor(queue) {
+    const est = window.lpEstimates;
+    const all = est && est.series ? (est.series[queue] || []) : [];
+    return all.filter(p => !p.remake && Number.isFinite(p.lpAfter)).slice(-LP_CHART_GAMES);
+}
+
+function drawLpChart(spec) {
+    const canvas = document.getElementById(spec.canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
-
-    let history = [];
-    try { history = await getLpHistoryCached(queue); } catch (e) { return; }
-
-    // Show only the most recent 10 snapshots
-    history = history.slice(-10);
+    const series = lpSeriesFor(spec.queue);
+    lpChartGeometry.set(spec.canvasId, []);
 
     const dpr  = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
@@ -407,34 +368,32 @@ async function drawLpChart(canvasId, queue, lineColor) {
     ctx.scale(dpr, dpr);
 
     const W = rect.width, H = rect.height;
-
-    // Padding scales with height instead of being fixed. At the old 110px the
-    // caps apply and nothing changes; on a shorter canvas the gutters shrink
-    // rather than eating the whole plot area.
     const PAD = {
         top:    Math.min(20, Math.round(H * 0.19)),
         right:  16,
         bottom: Math.min(28, Math.round(H * 0.26)),
         left:   34,
     };
-    const cW  = W - PAD.left - PAD.right;
-    const cH  = H - PAD.top  - PAD.bottom;
+    const cW = W - PAD.left - PAD.right;
+    const cH = H - PAD.top  - PAD.bottom;
 
     ctx.clearRect(0, 0, W, H);
 
-    if (history.length === 0) {
-        ctx.fillStyle = 'rgba(255,255,255,0.2)';
+    if (series.length === 0) {
+        ctx.fillStyle = 'rgba(255,255,255,0.25)';
         ctx.font      = '11px Inter, sans-serif';
         ctx.textAlign = 'center';
-        ctx.fillText('No data yet', W / 2, H / 2 + 4);
+        const hasGames = window.lpEstimates && (window.lpEstimates.series[spec.queue] || []).length;
+        ctx.fillText(hasGames ? 'No LP reading yet. Add a checkpoint to estimate past games.' : 'No data yet',
+            W / 2, H / 2 + 4);
         return;
     }
 
-    const absLps = history.map(r => getLpAbsolute(r.tier, r.rank, r.lp));
+    const absLps = series.map(p => p.lpAfter);
     const minAbs = Math.max(0, Math.min(...absLps) - 30);
     const maxAbs = Math.max(...absLps) + 30;
     const range  = maxAbs - minAbs || 100;
-    const n      = history.length;
+    const n      = series.length;
     const toX    = i => PAD.left + (n > 1 ? (i / (n - 1)) * cW : cW / 2);
     const toY    = v => PAD.top  + cH - ((v - minAbs) / range) * cH;
 
@@ -443,7 +402,6 @@ async function drawLpChart(canvasId, queue, lineColor) {
         const bandLow  = Math.max(minAbs, ti * 400);
         const bandHigh = Math.min(maxAbs, (ti + 1) * 400);
         if (bandHigh <= bandLow) continue;
-
         const yTop    = toY(bandHigh);
         const yBottom = toY(bandLow);
         ctx.fillStyle = hexToRgba(LP_TIER_COLORS[LP_TIER_NAMES[ti]] || LP_FALLBACK_COLOR, 0.09);
@@ -459,15 +417,10 @@ async function drawLpChart(canvasId, queue, lineColor) {
             if (absLp < minAbs || absLp > maxAbs) return;
             const y   = toY(absLp);
             const lbl = `${LP_TIER_SHORT[tier]}${4 - ri}`;
-
-            // Solid, slightly stronger line at a tier boundary; dashed within
             const isTierStart = ri === 0;
             ctx.setLineDash(isTierStart ? [] : [3, 4]);
-            ctx.strokeStyle = isTierStart
-                ? hexToRgba(tierColor, 0.45)
-                : hexToRgba(tierColor, 0.16);
+            ctx.strokeStyle = isTierStart ? hexToRgba(tierColor, 0.45) : hexToRgba(tierColor, 0.16);
             ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(W - PAD.right, y); ctx.stroke();
-
             ctx.fillStyle = hexToRgba(tierColor, isTierStart ? 0.95 : 0.5);
             ctx.font      = `${isTierStart ? 'bold ' : ''}9px Inter, sans-serif`;
             ctx.textAlign = 'right';
@@ -477,16 +430,13 @@ async function drawLpChart(canvasId, queue, lineColor) {
     ctx.setLineDash([]);
 
     if (n > 1) {
-        // Fill and line both use the rank-coloured gradient, so the line takes
-        // on each tier's colour as it passes through it.
         const fillGrad = makeTierGradient(ctx, PAD.top, cH, minAbs, maxAbs, 0.22);
         const lineGrad = makeTierGradient(ctx, PAD.top, cH, minAbs, maxAbs);
-
         ctx.beginPath();
         ctx.moveTo(toX(0), toY(absLps[0]));
         for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(absLps[i]));
-        ctx.lineTo(toX(n-1), PAD.top + cH);
-        ctx.lineTo(toX(0),   PAD.top + cH);
+        ctx.lineTo(toX(n - 1), PAD.top + cH);
+        ctx.lineTo(toX(0),     PAD.top + cH);
         ctx.closePath();
         ctx.fillStyle = fillGrad;
         ctx.fill();
@@ -499,43 +449,150 @@ async function drawLpChart(canvasId, queue, lineColor) {
         ctx.moveTo(toX(0), toY(absLps[0]));
         for (let i = 1; i < n; i++) ctx.lineTo(toX(i), toY(absLps[i]));
         ctx.stroke();
+        ctx.lineWidth = 1;
     }
 
-    // Dots + point labels on first, last, and tier/rank changes
-    history.forEach((r, i) => {
+    // Dots: filled = measured LP, hollow = estimated. Labels on the first,
+    // the last and division changes, but never within LABEL_GAP px of another
+    // label (estimates hovering at a division line would stack them).
+    const LABEL_GAP = 60;
+    let lastLabelX = -Infinity;
+    const geo = [];
+    series.forEach((p, i) => {
         const x = toX(i), y = toY(absLps[i]);
         const dotColor = tierColorForAbs(absLps[i]);
-        // Dark outline keeps the dot readable against its own tier band
         ctx.beginPath();
         ctx.arc(x, y, 3.6, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(10,12,18,0.85)';
+        ctx.fillStyle = 'rgba(10,12,18,0.9)';
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x, y, 2.6, 0, Math.PI * 2);
-        ctx.fillStyle = dotColor;
-        ctx.fill();
+        ctx.arc(x, y, p.estimated ? 2.4 : 2.6, 0, Math.PI * 2);
+        if (p.estimated) {
+            ctx.strokeStyle = dotColor;
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.lineWidth = 1;
+        } else {
+            ctx.fillStyle = dotColor;
+            ctx.fill();
+        }
+        geo.push({ x, y, p });
 
-        const prev        = history[i - 1];
-        const tierChanged = !prev || prev.tier !== r.tier || prev.rank !== r.rank;
-        if (i === 0 || i === n - 1 || tierChanged) {
+        const prevDiv = i > 0 ? Math.floor(absLps[i - 1] / 100) : null;
+        const isLast = i === n - 1;
+        const roomy = x - lastLabelX >= LABEL_GAP && (isLast || toX(n - 1) - x >= LABEL_GAP);
+        if (isLast || (roomy && (i === 0 || prevDiv !== Math.floor(absLps[i] / 100)))) {
+            lastLabelX = x;
             ctx.fillStyle = dotColor;
             ctx.font      = 'bold 9px Inter, sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText(getLpPointLabel(r.tier, r.rank, r.lp), x, y - 8);
+            ctx.fillText((p.estimated ? '~' : '') + shortLpLabel(absLps[i]), x, y - 8);
         }
     });
+    lpChartGeometry.set(spec.canvasId, geo);
 
     // X-axis date labels
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     ctx.font      = '9px Inter, sans-serif';
     ctx.textAlign = 'center';
     const step = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(cW / 50))));
-    history.forEach((r, i) => {
-        if (i === 0 || i === n - 1 || i % step === 0) {
-            ctx.fillText(r.recorded_date.slice(5), toX(i), H - PAD.bottom + 11);
-        }
+    const day = t => { const d = new Date(t); return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    series.forEach((p, i) => {
+        if (i === 0 || i === n - 1 || i % step === 0) ctx.fillText(day(p.gameCreation), toX(i), H - PAD.bottom + 11);
     });
 }
+
+/** Hover: the game under the mouse. Click: open it in Match History. */
+function wireLpChart(spec) {
+    const canvas = document.getElementById(spec.canvasId);
+    const tip = document.getElementById(spec.tipId);
+    if (!canvas || !tip || canvas.dataset.wired) return;
+    canvas.dataset.wired = '1';
+
+    const nearest = (e) => {
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left, y = e.clientY - r.top;
+        let best = null, bestD = 14 * 14;
+        for (const g of lpChartGeometry.get(spec.canvasId) || []) {
+            const d = (g.x - x) ** 2 + (g.y - y) ** 2;
+            if (d < bestD) { best = g; bestD = d; }
+        }
+        return best;
+    };
+
+    canvas.addEventListener('mousemove', (e) => {
+        const g = nearest(e);
+        canvas.style.cursor = g ? 'pointer' : '';
+        if (!g) { tip.classList.remove('visible'); return; }
+        const p = g.p;
+        const when = new Date(p.gameCreation).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+        tip.innerHTML =
+            `<b>${escapeHtml(p.championName || '')}</b> · ${p.win ? 'Win' : 'Loss'} · ${when}<br>` +
+            `${p.estimated ? '~' : ''}${signed(p.delta)} LP${p.estimated ? ' <span>(estimate)</span>' : ''} → ` +
+            `${p.estimated ? '~' : ''}${escapeHtml(rankLabel(p.lpAfter))}`;
+        tip.style.left = `${Math.min(g.x, canvas.clientWidth - 170)}px`;
+        tip.style.top  = `${g.y + 12}px`;
+        tip.classList.add('visible');
+    });
+    canvas.addEventListener('mouseleave', () => { tip.classList.remove('visible'); canvas.style.cursor = ''; });
+    canvas.addEventListener('click', (e) => {
+        const g = nearest(e);
+        if (g) window.openMatchInHistory(g.p.matchId);
+    });
+}
+
+/** "Net −46 LP · 2 wins to Silver I" under each chart. */
+function renderLpSummary(spec) {
+    const el = document.getElementById(spec.summaryId);
+    if (!el) return;
+    const est = window.lpEstimates;
+    const series = est && est.series ? (est.series[spec.queue] || []) : [];
+    const known = series.filter(p => Number.isFinite(p.lpAfter));
+    if (!known.length) { el.textContent = ''; return; }
+
+    // Net over the games the filters currently show (this queue only)
+    const shown = new Set((window._calendarFilteredMatches || window.matchesData || []).map(m => m.matchId));
+    const inView = series.filter(p => shown.has(p.matchId) && !p.remake);
+    const net = inView.reduce((s, p) => s + p.delta, 0);
+    const anyEstimate = inView.some(p => p.estimated);
+
+    const typical = est.typical[spec.queue];
+    const next = nextDivision(known[known.length - 1].lpAfter, typical.gain);
+    const parts = [];
+    if (inView.length) {
+        parts.push(`<span title="Sum of the LP changes over the ${inView.length} games your filters show${anyEstimate ? ', some of them estimated' : ''}">Net ` +
+            `<b class="${net > 0 ? 'lp-up' : net < 0 ? 'lp-down' : ''}">${anyEstimate ? '~' : ''}${signed(net)} LP</b></span>`);
+    }
+    if (next) {
+        parts.push(`<span title="${typical.measured ? 'Your average over your last real wins' : 'Typical gain until 5 of your wins have been measured'}">` +
+            `<b>${next.wins}</b> win${next.wins === 1 ? '' : 's'} to ${escapeHtml(next.label)} ` +
+            `<span class="lp-dim">(+${typical.gain} per win)</span></span>`);
+    }
+    el.innerHTML = parts.join('<span class="lp-dot">·</span>');
+}
+
+/** Switch to Match History and open one game's row (from the LP chart). */
+window.openMatchInHistory = async function (matchId) {
+    const index = (window.matchesData || []).findIndex(m => m.matchId === matchId);
+    if (index < 0) return;
+    window.switchTopTab('history');
+    const rowOf = () => document.querySelector(`.match-table tr[data-match-index="${index}"]`);
+    if (!rowOf() && typeof window.renderFilteredMatches === 'function') {
+        window.displayedMatchCount = Infinity;          // the game may be further down the list
+        await window.renderFilteredMatches({ listOnly: true });
+    }
+    const row = rowOf();
+    if (!row) {
+        if (typeof window.showToast === 'function') {
+            window.showToast('Game hidden', 'This game is hidden by the current filters.', 4000);
+        }
+        return;
+    }
+    if (!(row.nextElementSibling && row.nextElementSibling.classList.contains('expanded-row'))) {
+        await window.toggleRowExpand(index);
+    }
+    row.scrollIntoView({ block: 'start', behavior: 'smooth' });
+};
 
 // ---------------------------------------------------------------------------
 // TIME INSIGHTS

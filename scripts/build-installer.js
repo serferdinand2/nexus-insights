@@ -13,24 +13,20 @@
  * in electronDist are whatever `npm install` fetched for *this* machine, so a
  * cross-build would ship binaries that can't run on the target.
  *
- * WHY THIS ISN'T JUST `electron-builder`
- * --------------------------------------
- * The source contains one piece of personal data: SOLO_LP_SEED in
- * src/components/calendarPanel.js, a hardcoded copy of the owner's own
- * Solo/Duo rank history (plus a Gold I flex starter point). Built as-is, every
- * person who installs the app would see someone else's LP climb on their chart.
+ * NO PERSONAL DATA IN THE PACKAGE
+ * -------------------------------
+ * The source used to carry the owner's LP history (SOLO_LP_SEED in
+ * calendarPanel.js), which this script stripped for every build. That history
+ * now lives in each user's own database as LP checkpoints (#5), so there is
+ * nothing to strip; the script only refuses to build if hard-coded LP history
+ * ever shows up in the source again.
  *
- * So for the duration of the build this script swaps in a copy with those seeds
- * emptied, then restores the original — the owner's running app is unaffected.
- * If it can't find the seed to strip, it refuses to build rather than risk
- * shipping it.
- *
- * Everything else is already per-user: the API key, Riot ID and match database
+ * Everything is per-user: the API key, Riot ID, LP history and match database
  * live in %APPDATA%\nexus-insights on whichever PC runs the app, and are never
  * part of the package. A fresh install starts empty.
  *
  * Flags:
- *   --dry-run   do the strip + checks + restore, but skip electron-builder
+ *   --dry-run   do the checks, but skip electron-builder
  *   --publish   RELEASE AN UPDATE (npm run release / "Publish Update.bat"),
  *               Windows only for now (see the check below):
  *               bump the patch version (1.0.3 -> 1.0.4), build, upload the
@@ -54,6 +50,7 @@ const VERSION_ARG = (() => {
     return i > -1 ? process.argv[i + 1] : null;
 })();
 const SEED_FILE = path.join(ROOT, 'src', 'components', 'calendarPanel.js');
+// Left behind by an interrupted build of an older version of this script
 const BACKUP    = SEED_FILE + '.build-backup';
 
 function fail(msg) {
@@ -62,14 +59,14 @@ function fail(msg) {
 }
 
 // ---------------------------------------------------------------------------
-// 0. Recover from an interrupted earlier build
+// 0. Leftover from an older build
 // ---------------------------------------------------------------------------
-// If a previous run was killed mid-build, the stripped file is still in place
-// and the original is sitting in the backup. Put it back before anything else.
+// Older versions of this script stripped calendarPanel.js and kept the
+// original in a .build-backup file. That backup still holds the hard-coded LP
+// history, so it must not be copied back now; ask for it to be removed.
 if (fs.existsSync(BACKUP)) {
-    console.log('  Restoring calendarPanel.js left over from an interrupted build...');
-    fs.copyFileSync(BACKUP, SEED_FILE);
-    fs.unlinkSync(BACKUP);
+    fail(`Found ${path.relative(ROOT, BACKUP)}, left by an interrupted build of an older version.\n` +
+         '  Builds no longer change calendarPanel.js. Check you don\'t need it, delete it, and run this again.');
 }
 
 // ---------------------------------------------------------------------------
@@ -204,65 +201,35 @@ async function checkToken() {
 console.log(`\n  ${PUBLISH ? 'Releasing' : 'Building'} Nexus Insights ${pkg.version} for ${TARGET.os}\n`);
 
 // ---------------------------------------------------------------------------
-// 2. Strip personal data (temporarily)
+// 2. No personal data in the source
 // ---------------------------------------------------------------------------
-const original = fs.readFileSync(SEED_FILE, 'utf8');
-let cleaned = original;
-
-const SEED_RE = /const SOLO_LP_SEED = \[[\s\S]*?\];/;
-if (!SEED_RE.test(cleaned)) {
-    fail('Could not find SOLO_LP_SEED in calendarPanel.js — the source has changed.\n' +
-         '  Refusing to build in case personal LP history would ship.\n' +
-         '  Update the pattern in scripts/build-installer.js.');
-}
-cleaned = cleaned.replace(SEED_RE, 'const SOLO_LP_SEED = [];');
-
-// Optional hardcoded flex starter point — strip it if present
-cleaned = cleaned.replace(
-    /\s*const flexHist = await getLpHistory\('flex'\);\s*if \(flexHist\.length === 0\) \{\s*await seedLpSnapshot\('flex'[^\n]*\n\s*\}/,
-    '\n        // (flex starter snapshot removed for distribution)');
-
-// Final guard: no dated personal snapshots may remain
-if (/\{\s*date:\s*'20\d\d-\d\d-\d\d',\s*tier:/.test(cleaned)) {
-    fail('Personal LP snapshots still present after stripping. Not building.');
-}
-if (/seedLpSnapshot\('flex'/.test(cleaned)) {
-    fail('Hardcoded flex LP snapshot still present after stripping. Not building.');
+const source = fs.readFileSync(SEED_FILE, 'utf8');
+if (/\{\s*date:\s*'20\d\d-\d\d-\d\d',\s*tier:/.test(source) || /SOLO_LP_SEED|seedLpSnapshot\(/.test(source)) {
+    fail('calendarPanel.js contains hard-coded LP history again. Not building.\n' +
+         '  LP history belongs in the database (Checkpoints on the LP cards), not in the source.');
 }
 
 (async () => {
 await checkToken();
 
 let exitCode = 0;
-fs.copyFileSync(SEED_FILE, BACKUP);
-try {
-    fs.writeFileSync(SEED_FILE, cleaned, 'utf8');
-    console.log('  Personal LP history stripped for this build (restored afterwards).');
 
-    // -----------------------------------------------------------------------
-    // 3. Build
-    // -----------------------------------------------------------------------
-    if (DRY_RUN) {
-        console.log('  --dry-run: skipping electron-builder.');
-    } else {
-        const bin = path.join(ROOT, 'node_modules', '.bin',
-            process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
-        console.log('  Running electron-builder (takes a minute or two)...\n');
-        const r = spawnSync(`"${bin}"`, [...TARGET.args, '--publish', PUBLISH ? 'always' : 'never'], {
-            cwd: ROOT,
-            stdio: 'inherit',
-            shell: true,
-            env: buildEnv,
-        });
-        exitCode = r.status === null ? 1 : r.status;
-    }
-} finally {
-    // -----------------------------------------------------------------------
-    // 4. Always restore the owner's original file
-    // -----------------------------------------------------------------------
-    fs.copyFileSync(BACKUP, SEED_FILE);
-    fs.unlinkSync(BACKUP);
-    console.log('\n  calendarPanel.js restored to your original.');
+// ---------------------------------------------------------------------------
+// 3. Build
+// ---------------------------------------------------------------------------
+if (DRY_RUN) {
+    console.log('  --dry-run: skipping electron-builder.');
+} else {
+    const bin = path.join(ROOT, 'node_modules', '.bin',
+        process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder');
+    console.log('  Running electron-builder (takes a minute or two)...\n');
+    const r = spawnSync(`"${bin}"`, [...TARGET.args, '--publish', PUBLISH ? 'always' : 'never'], {
+        cwd: ROOT,
+        stdio: 'inherit',
+        shell: true,
+        env: buildEnv,
+    });
+    exitCode = r.status === null ? 1 : r.status;
 }
 
 if (PUBLISH && (exitCode !== 0 || DRY_RUN)) {

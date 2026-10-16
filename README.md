@@ -59,12 +59,13 @@ so people download it from GitHub and get updates.
 
 The installer is a **completely fresh copy**: no API key, no Riot ID, no matches,
 no LP history. Those all live in `%APPDATA%\nexus-insights` on *your* PC and are
-never packaged. The one piece of personal data in the source (your hardcoded LP
-history in `calendarPanel.js`) is stripped during the build and put back
-afterwards, so your own app is unaffected. The script refuses to build if it
-can't find that data to strip.
+never packaged. Your LP history from before tracking lives there too, as
+**LP checkpoints** (the Checkpoints button on the LP cards), not in the source.
+The build script refuses to build if hard-coded LP history ever shows up in
+the source again.
 
-Use `npm run dist`, not `npm run build`. Plain `build` skips the strip.
+Use `npm run dist`, not `npm run build`: it runs that check and names the
+installer correctly.
 
 `dist\Nexus Insights - portable.zip` is a no-install alternative: unzip it, run
 `Nexus Insights.exe`. It was built from the same cleaned source.
@@ -104,7 +105,7 @@ npm run dist
 | macOS | `Nexus-Insights-mac-arm64.dmg` (Apple Silicon) or `-x64.dmg` (Intel) |
 | Linux | `Nexus-Insights-linux-x64.AppImage` (or `-arm64`) |
 
-Same fresh copy as the Windows one: LP history stripped, no data packaged.
+Same fresh copy as the Windows one: no data packaged.
 
 - **Each OS builds its own copy, for its own chip.** The SQLite driver and
   Electron in `node_modules` are the ones `npm install` downloaded for that
