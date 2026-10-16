@@ -511,6 +511,26 @@ tested). Nav rail button between Match History and Coaching.
   Indexing 562 games took ~6 s.
 - No JSON blobs are read; everything comes from scalar columns.
 
+### Patch + period filter (2026-10, issue #6)
+
+- `patch` column (major.minor from `info.gameVersion`, e.g. `16.20`; ''
+  unknown, NULL not computed), written by the computed-stats pipeline and
+  backfilled like the other computed columns (`patch IS NULL`).
+- **Period dropdown** (`#periodFilter`, before the champion dropdown):
+  All time · Last patch / 2 / 3 patches · a single patch (12 newest, with
+  counts) · Last 7 / 30 days, 3 / 6 months, year. Values are strings
+  (`''`, `patches:N`, `patch:16.20`, `days:N`) handled by
+  `services/patches.js` `filterByPeriod` (pure, tested). Games with no
+  patch yet drop out of patch periods only, never out of time windows.
+- `renderFilteredMatches` applies it **first** (`periodMatches`, before the
+  game-mode filter), so the cards, calendar, time insights, champion list,
+  Match History and the Champions page all follow it. Coaching does not:
+  it is about your last games and reads `window.matchesData` directly.
+- `components/periodFilter.js`: the dropdown (rebuilt only when the set of
+  patches changes) and the **Win Rate by Patch** card, which sits beside
+  Win Rate by Game Length (one `ta-right-row`, so the section's height
+  doesn't change).
+
 ### Remakes are excluded from statistics
 
 Games abandoned in the first minutes (someone failed to connect) are stored and

@@ -293,7 +293,9 @@ function initDatabase() {
         impactTag TEXT,
         -- Lane opponent's champion (same teamPosition, other team) for the
         -- Champions page matchups. '' = none (no position); NULL = not computed.
-        laneOpponent TEXT
+        laneOpponent TEXT,
+        -- Game patch, major.minor ('16.20'); '' = unknown, NULL = not computed
+        patch TEXT
       )
     `);
 
@@ -450,7 +452,8 @@ function initDatabase() {
       'impactScore REAL',
       'impactRank INTEGER',
       'impactTag TEXT',
-      'laneOpponent TEXT'
+      'laneOpponent TEXT',
+      'patch TEXT'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion
