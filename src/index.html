@@ -126,6 +126,12 @@
                             <button class="filter-clear-btn" onclick="clearGameModeFilters()"
                                 title="Clear all game modes">Clear</button>
                         </div>
+                        <div class="champ-filter-wrapper period-filter-wrapper">
+                            <select id="periodFilter" onchange="applyFilters()" aria-label="Filter by patch or time"
+                                    title="Only games from these patches, or from this time window">
+                                <option value="">All time</option>
+                            </select>
+                        </div>
                         <div class="champ-filter-wrapper">
                             <select id="champFilter" onchange="applyFilters()" aria-label="Filter by champion">
                                 <option value="">All Champions</option>
@@ -330,10 +336,18 @@
                                 <div class="day-bar-chart" id="dayBarChart"></div>
                             </div>
 
-                            <!-- Row 3: Win Rate by Game Length (full right width) -->
-                            <div class="ta-card">
-                                <div class="insight-mini-label">Win Rate by Game Length</div>
-                                <div class="length-bar-chart" id="lengthBarChart"></div>
+                            <!-- Row 3: Win Rate by Game Length, and by Patch
+                                 (components/periodFilter.js) side by side, so the
+                                 section doesn't grow taller than the left column -->
+                            <div class="ta-right-row">
+                                <div class="ta-card">
+                                    <div class="insight-mini-label">Win Rate by Game Length</div>
+                                    <div class="length-bar-chart" id="lengthBarChart"></div>
+                                </div>
+                                <div class="ta-card">
+                                    <div class="insight-mini-label">Win Rate by Patch</div>
+                                    <div class="length-bar-chart" id="patchBarChart"></div>
+                                </div>
                             </div>
 
                         </div><!-- /ta-right -->

@@ -31,6 +31,7 @@ window.require('./components/updateButton');   // registers initUpdateButton (ti
 window.require('./components/skinsPanel');     // registers applySavedSkin, openSkinsPanel
 window.require('./components/chatPanel');      // registers openChatPanel (Ollama chat page)
 window.require('./components/championsPanel'); // registers openChampionsPanel (Champions page)
+window.require('./components/periodFilter');   // registers updatePeriodDropdown, applyPeriodFilter, renderPatchWinRates
 
 // Destructure named exports needed inside renderer.js itself
 const {
@@ -566,7 +567,13 @@ window.renderFilteredMatches = async function (opts = {}) {
     const otherCheckbox  = document.querySelector('.queue-filter[data-queue*="1020"]');
     const includeUnknown = otherCheckbox && otherCheckbox.checked;
 
-    const queueFiltered = matchesData.filter(match =>
+    // Period filter (#6: last patches / one patch / time window) comes first,
+    // so everything below, including the champion list, follows it
+    if (typeof window.updatePeriodDropdown === 'function') window.updatePeriodDropdown(matchesData);
+    const periodSelect  = document.getElementById('periodFilter');
+    const periodMatches = typeof window.applyPeriodFilter === 'function' ? window.applyPeriodFilter(matchesData) : matchesData;
+
+    const queueFiltered = periodMatches.filter(match =>
         activeQueueFilters.has(match.queueId) ||
         (includeUnknown && !allDefinedQueues.has(match.queueId))
     );
@@ -612,6 +619,7 @@ window.renderFilteredMatches = async function (opts = {}) {
         champ: selectedChamp,
         dates: [...selectedDates].sort(),
         size: matchesData.length,
+        period: periodSelect ? periodSelect.value : '',
     });
     const filtersChanged = signature !== lastFilterSignature;
 
@@ -1065,7 +1073,8 @@ async function backfillAnalyticsInBackground() {
     try {
         // impactRank / laneOpponent: rows indexed before those existed (#2, #4)
         const pending = (window.matchesData || []).filter(
-            m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null
+            m => m.statsComputedAt == null || m.impactRank == null || m.laneOpponent == null ||
+                 m.patch == null   // #6
         );
         if (pending.length === 0) return;
 

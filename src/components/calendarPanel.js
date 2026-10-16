@@ -690,6 +690,9 @@ window.calculateTimeInsights = function (matches) {
         }).join('');
     }
 
+    // ── Win Rate by Patch (components/periodFilter.js, #6) ────────────────────
+    if (typeof window.renderPatchWinRates === 'function') window.renderPatchWinRates(matches);
+
     // ── Stamina + Streaks ─────────────────────────────────────────────────────
     if (el('staminaFresh')) {
         el('staminaFresh').textContent    = fresh.t > 0 ? `${Math.round((fresh.w/fresh.t)*100)}% WR` : '--';

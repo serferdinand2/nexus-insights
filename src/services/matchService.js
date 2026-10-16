@@ -2,6 +2,7 @@ const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 const { computeTeamImpact } = require('./teamImpact');
+const { patchOf } = require('./patches');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
@@ -143,7 +144,7 @@ async function getMatches(limit = null) {
                 dmgShare, killParticipation, dmgTakenPerDeath, multikills,
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
-                impactScore, impactRank, impactTag, laneOpponent
+                impactScore, impactRank, impactTag, laneOpponent, patch
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -462,6 +463,7 @@ const COMPUTED_STAT_COLUMNS = [
     'statsComputedAt', 'isRemake',
     'impactScore', 'impactRank', 'impactTag',
     'laneOpponent',
+    'patch',
 ];
 
 /**
@@ -510,7 +512,8 @@ async function backfillComputedStats(onProgress) {
         SELECT matchId, championName, teamId
         FROM matches
         WHERE rawJson IS NOT NULL
-          AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL)
+          AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
+               OR patch IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -561,7 +564,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         enemyTeamKills: null, visionAdvantage: null, goldShare: null,
         isRemake: null,
         impactScore: null, impactRank: null, impactTag: null,
-        laneOpponent: null
+        laneOpponent: null,
+        patch: null
     };
 
     try {
@@ -591,6 +595,9 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             result.impactRank  = impact.rank;
             result.impactTag   = impact.tag;
         }
+
+        // === Patch ('16.20'; '' when Riot didn't say, so it isn't re-indexed) ===
+        result.patch = patchOf(info.info ? info.info.gameVersion : info.gameVersion);
 
         // === Remake ===
         // Riot's flag is authoritative; the duration check catches payloads

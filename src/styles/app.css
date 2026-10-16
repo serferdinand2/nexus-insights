@@ -4921,6 +4921,16 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     padding-bottom: 10px;
 }
 
+/* Period filter (#6) sits just before the champion dropdown */
+#filterSection .period-filter-wrapper {
+    flex-basis: 150px;
+}
+
+@media (max-width: 1250px) {
+    /* the pair moves right together, not pushed apart */
+    #filterSection .period-filter-wrapper + .champ-filter-wrapper { margin-left: 0; }
+}
+
 /* Narrow windows: let the filters drop to their own line rather than
    crushing the summoner fields. */
 @media (max-width: 1250px) {
