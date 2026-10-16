@@ -1,0 +1,67 @@
+# Release automatically: every merge to main builds the Windows installer on
+# GitHub's own machine and publishes it as a new GitHub Release, which is what
+# the app's update button (⟳) downloads. No need to run Publish Update.bat.
+#
+# - Runs on pushes to main, except ones that only touch Markdown (docs).
+# - Can also be started by hand: Actions tab > Release > Run workflow.
+# - Nothing is published unless every test passes.
+# - The version is one patch above the newest release (scripts/next-version.js).
+# - The "Release vX" commit it pushes back uses GITHUB_TOKEN, and GitHub never
+#   starts a workflow from such a push, so it can't loop.
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write          # create releases and push the version commit
+
+concurrency:
+  group: release           # one release at a time; a newer run waits its turn
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # release notes list the commits since the last release
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Pick the next version
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          latest=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)
+          next=$(node scripts/next-version.js "$latest")
+          echo "Latest release: ${latest:-none}. Releasing: $next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # the installer is unsigned, as before
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/build-installer.js --publish --version "${{ steps.version.outputs.version }}"

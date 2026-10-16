@@ -166,7 +166,14 @@ function gitState() {
 if (PUBLISH) {
     // Before anything changes: the release commit has to land on an
     // up-to-date main with nothing else in it (#42).
-    const problems = releaseProblems(gitState());
+    const state = gitState();
+    // In the automatic release (GitHub Actions, CI=true), a newer commit on
+    // main means a later run will release it: step aside instead of failing.
+    if (process.env.CI && state.behind > 0) {
+        console.log(`\n  Not releasing this commit: main has ${state.behind} newer commit(s), and their run releases them.\n`);
+        process.exit(0);
+    }
+    const problems = releaseProblems(state);
     if (problems.length) {
         fail('Not publishing, nothing was changed:\n' + problems.map(p => '  - ' + p).join('\n'));
     }
@@ -338,7 +345,10 @@ if (PUBLISH) {
     const VERSION_FILES = ['package.json', 'package-lock.json'];
     const committed = git('add', '--', ...VERSION_FILES) &&
                       git('commit', '-m', `Release v${pkg.version}`, '--', ...VERSION_FILES);
-    const pushed = committed && git('push');
+    // If main moved on during the build (a merge while it ran), put the
+    // version commit on top of it and try once more
+    const pushed = committed && (git('push') ||
+        (git('pull', '--rebase', 'origin', 'main') && git('push')));
 
     console.log('\n  =========================================================');
     console.log(`   RELEASED v${pkg.version}`);
