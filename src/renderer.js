@@ -67,7 +67,7 @@ window.isRemake = function (m) {
     return (m.gameDuration || 0) < window.REMAKE_MAX_SECONDS;
 };
 window.excludeRemakes = (list) => (list || []).filter(m => !window.isRemake(m));
-window.DDRAGON_BASE        = 'https://ddragon.leagueoflegends.com/cdn/25.S1.1';
+window.DDRAGON_BASE        = getDDragonBase();   // fallback until loadGameData() picks the current version
 window.QUEUE_NAMES         = {
     420: 'Ranked Solo',  440: 'Ranked Flex',
     400: 'Normal Draft', 430: 'Normal Blind',
