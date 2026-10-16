@@ -50,8 +50,9 @@ function renderImpactCell(impact) {
 }
 
 function renderPlayerRow(player, gameDuration) {
-    const kda    = player.deaths === 0 ? 'Perfect' : ((player.kills + player.assists) / player.deaths).toFixed(2);
-    const kdaNum = player.deaths === 0 ? 99 : (player.kills + player.assists) / player.deaths;
+    // No deaths counts as one, like the Analytics cards: 0/0/1 is 1.00, not "Perfect"
+    const kdaNum = (player.kills + player.assists) / Math.max(1, player.deaths);
+    const kda    = kdaNum.toFixed(2);
     const champIcon = getChampionIcon(player.championName);
     const csPerMin  = gameDuration > 0 ? (player.cs / (gameDuration / 60)).toFixed(1) : '0.0';
     const DDRAGON   = window.DDRAGON_BASE;

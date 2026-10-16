@@ -94,8 +94,9 @@ function getRankFromKP(kp) {
 // Render table row for a match
 function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, formatDamage, renderRunes, renderSummonerSpells) {
     const isWin = match.win === 1;
-    const kda = match.deaths === 0 ? 'Perfect' : ((match.kills + match.assists) / match.deaths).toFixed(2);
-    const kdaNum = match.deaths === 0 ? 99 : ((match.kills + match.assists) / match.deaths);
+    // No deaths counts as one, like the Analytics cards: 0/0/1 is 1.00, not "Perfect"
+    const kdaNum = (match.kills + match.assists) / Math.max(1, match.deaths);
+    const kda = kdaNum.toFixed(2);
 
     // Calculate KP%
     const totalTeamKills = match.teamKills || 0;
