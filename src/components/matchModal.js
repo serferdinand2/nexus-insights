@@ -11,6 +11,7 @@ const { evaluateBadges } = require('./badgeEvaluator');
 const { escapeHtml }     = require('./dom');
 const { computeTeamImpact, IMPACT_AREAS } = require('../services/teamImpact');
 const { renderMatchTimeline } = require('./matchTimelineChart');
+const { renderGameReport } = require('./gameReportPanel');
 const {
     RUNE_ICONS,
     getChampionIcon,
@@ -232,6 +233,7 @@ function createExpandedRow(match, index, badges = []) {
                 <div class="expanded-content-vertical">
                     ${badgesHTML}
                     <div class="match-timeline"></div>
+                    <div class="game-report"></div>
                     <div class="teams-vertical">
                         <div class="team-section-full ${yourWin ? 'team-win' : 'team-loss'}">
                             <div class="team-header">${yourWin ? 'Victory' : 'Defeat'} - Your Team</div>
@@ -299,6 +301,17 @@ window.toggleRowExpand = async function (index) {
     }
 
     clickedRow.insertAdjacentHTML('afterend', createExpandedRow(fullMatch || match, index, badges));
+
+    // Game report (#9): this game against your season / patch / week, and blunders
+    const reportHost = clickedRow.nextElementSibling && clickedRow.nextElementSibling.querySelector('.game-report');
+    if (reportHost && fullMatch) {
+        try {
+            renderGameReport(reportHost, match, fullMatch);
+        } catch (err) {
+            console.warn('Game report failed:', err);
+            reportHost.remove();
+        }
+    }
 
     // Timeline chart (#3) needs the canvas in the DOM before it can draw
     const host = clickedRow.nextElementSibling && clickedRow.nextElementSibling.querySelector('.match-timeline');

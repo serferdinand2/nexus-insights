@@ -99,7 +99,7 @@ src/
 
 - **Dark theme** throughout, with gold/teal CSS custom property accents
 - **Title bar**: Nexus logo + name on the left, ⟳ update button and ⚙ settings (SVG) top-right
-- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Teammates, Coaching, Chat, Skins
+- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Allies (the Teammates page; the full word wraps in the 78px rail), Coaching, Chat, Skins
 - **Analytics tab**:
   - Summoner Name # Tag input + "Sync Matches" button at the top
   - Progress bar with new/filtered/existing counters during sync
@@ -111,7 +111,8 @@ src/
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
 - **Coaching tab**: Solo/Duo only. Rank header, last-game report (‹ › to step back), focus metric with hit/miss dots, area trends with sparklines, collapsed Details. See "Coaching page (rewritten 2026-10)" below.
-- **Expanded Match Rows**: clicking a match-table row expands an inline game timeline chart (win chance / gold lead / XP lead with event markers) and a full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
+- **Match table**: no Result column (the row colour says win/loss; MVP/SVP sits next to the champion). KDA is (K + A) / max(1, D) everywhere: no "Perfect".
+- **Expanded Match Rows**: clicking a match-table row expands an inline game timeline chart, a game report (#9) (win chance / gold lead / XP lead with event markers) and a full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
 
@@ -577,6 +578,29 @@ tested). Nav rail button between Match History and Coaching.
   dropped, so the "Lazy JSON Loading" rule holds) and returns matchId →
   [{ puuid, name }]. Players are keyed by PUUID (survives renames); the name
   shown is the newest. First open on 566 games reads them all once.
+
+### Game report (2026-10, issue #9)
+
+In every expanded match row, under the timeline (`components/gameReportPanel.js`,
+`services/gameReport.js`, pure, tested). Skipped for remakes.
+
+- **Table:** 9 stats (KDA, KP, CS/min, damage/min, gold/min, vision/min,
+  deaths, GD@15, CSD@15) for this game against your season, this patch and
+  the 7 days before it, same queue and role, never the game itself.
+  **Every value comes from `computeTabStats`** run over [this game] and over
+  each pool, so it can't disagree with the Analytics cards. A cell is green
+  / red when this game is ≥ 10% better / worse than that average (direction
+  from the card's `higherIsBetter`); GD/CSD measure 10% against at least
+  1000 gold / 10 CS, since their averages sit near 0. Pools under 3 games
+  show "–".
+- **Went well / went wrong:** the biggest differences from your season.
+- **Blunders** (timeline): a death in the first 3 min, 3+ deaths to the same
+  champion, two deaths within 3 min, deaths while win chance was ≥ 60%, and
+  the death with the biggest win-chance drop over the next minute (≥ 10
+  points; `matchTimeline.teamSeries`).
+- At most three points per section. The report uses `fitWidth` from
+  matchTimelineChart.js, like the chart, because the expanded row is as
+  wide as the sideways-scrolling table.
 
 ### Remakes are excluded from statistics
 

@@ -5221,6 +5221,126 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     text-align: center;
 }
 
+/* ── Game report in the expanded row (components/gameReportPanel.js, #9) ── */
+.game-report {
+    box-sizing: border-box;
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.game-report:empty {
+    display: none;
+}
+
+.gr-head {
+    margin-bottom: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.gr-head span {
+    margin-left: 6px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.gr-body {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.2fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.gr-sec {
+    margin-bottom: 10px;
+    padding-left: 10px;
+    border-left: 3px solid var(--line-strong, rgba(255, 255, 255, 0.15));
+    font-size: 12px;
+}
+
+.gr-sec b {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-primary);
+}
+
+.gr-sec ul {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+}
+
+.gr-sec--good { border-left-color: var(--success); }
+.gr-sec--bad { border-left-color: var(--error); }
+.gr-sec--blunder { border-left-color: var(--warning); }
+
+.gr-empty {
+    color: var(--text-tertiary);
+}
+
+.gr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.gr-table th {
+    padding: 6px 8px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.gr-table th span {
+    margin-left: 4px;
+    font-weight: 500;
+    letter-spacing: 0;
+    opacity: 0.7;
+}
+
+.gr-table td {
+    padding: 5px 8px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.gr-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.gr-table .gr-this {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+/* The comparison cells say how THIS game did against that baseline */
+.gr-table .gr-good { color: var(--success); }
+.gr-table .gr-bad { color: var(--error); }
+.gr-table .gr-none { color: var(--text-tertiary); }
+
+.gr-legend {
+    margin-top: 6px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    text-align: right;
+}
+
+@media (max-width: 1100px) {
+    .gr-body { grid-template-columns: 1fr; }
+}
+
 /* ── Roles table under the Overview cards (components/roleBreakdown.js) ── */
 .role-breakdown {
     margin-top: var(--gutter);
