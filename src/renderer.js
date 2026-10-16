@@ -6,7 +6,7 @@ const { getPuuidByRiotId, PLATFORM_ROUTING } = window.require('./services/riotAp
 const { getLiveGame, testConnection } = window.require('./services/liveClient');
 const {
     getMatches, getStats, getMatchById, getLeagueData,
-    saveLpSnapshot, getMatchParticipantRanks,
+    saveLpSnapshot,
     loadRawJson, clearJsonCache, backfillComputedStats,
     recordLpReading, attachLpReadingsToMatches, getLpDeltasByMatch
 } = window.require('./services/matchService');

@@ -12,7 +12,6 @@ const {
     backfillTimelines,
     backfillAdvancedStats,
     backfillComputedStats,
-    fetchRanksForNewMatches,
     attachLpReadingsToMatches
 } = require('../services/matchService');
 const { loadConfig } = require('../services/config');
@@ -187,16 +186,6 @@ window.handleSync = async function (options = {}) {
         });
         hideProgress();
 
-        let rankMsg = '';
-        if (result.newMatchIds && result.newMatchIds.length > 0) {
-            const rankResult = await fetchRanksForNewMatches(result.newMatchIds, (current, total) => {
-                updateStatus('loading', 'Fetching Player Ranks', `${current}/${total} players...`);
-                updateProgress(current, total);
-            });
-            hideProgress();
-            rankMsg = rankResult.total > 0 ? `, ${rankResult.fetched} player ranks fetched` : '';
-        }
-
         // Reload match history (skip rank fetch — already done above)
         await window.loadMatchHistory(true);
 
@@ -212,10 +201,10 @@ window.handleSync = async function (options = {}) {
                     : 'No new match found yet — it may still be publishing');
         } else if (gaps) {
             updateStatus('success', 'Gaps Filled', result.missing > 0
-                ? `${result.missing} missing games found, ${result.newMatches} added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`
+                ? `${result.missing} missing games found, ${result.newMatches} added${timelineMsg}${advancedMsg}${computedMsg}`
                 : `Nothing missing: all ${result.listed} games since the season started are stored`);
         } else {
-            updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`);
+            updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${computedMsg}`);
         }
 
         // Every sync — manual click or the post-game auto-sync — is also a
