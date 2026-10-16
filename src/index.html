@@ -132,6 +132,11 @@
                                 <option value="__none__">None (Clear Filter)</option>
                             </select>
                         </div>
+                        <div class="champ-filter-wrapper role-filter-wrapper">
+                            <select id="roleFilter" onchange="applyFilters()" aria-label="Filter by role">
+                                <option value="">All roles</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -179,6 +184,9 @@
                     <div class="unified-stats-grid" id="analyticsCardsContainer">
                         <!-- Cards will be dynamically inserted here -->
                     </div>
+
+                    <!-- Roles table, Overview only — components/roleBreakdown.js -->
+                    <div class="role-breakdown" id="roleBreakdown" hidden></div>
 
                     <!-- Stat history: slides open when a card with a green dot is
                          clicked. One point per month, last 12 months, current filters.

@@ -459,6 +459,27 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 
 **If you add a stat that reads rawJson or timelineJson, add its tab to `TAB_JSON_NEEDS` or it will silently compute from `null`.**
 
+### Role filter + Roles table (2026-10, issue #10)
+
+- **Role dropdown** (`#roleFilter`) next to the champion filter, filled by
+  `updateRoleDropdown` (filtersPanel.js) with the roles present and their
+  counts. It narrows everything the champion filter does (cards, calendar,
+  time insights, Match History). The Champions page ignores it; it has its
+  own role chips.
+- `renderFilteredMatches` sets `window.analyticsRoleFilter` (the picked role
+  or null) and `window.rolePoolMatches` (the list before the role filter).
+- **Roles table** (`components/roleBreakdown.js`, `#roleBreakdown`) under
+  the Overview cards: games, play rate, win rate, KDA, CS/min, DMG/min, KP
+  per role, from `rolePoolMatches` minus remakes, so it always compares every
+  role. Click a row to filter to it; click it again to clear. "No role"
+  games are listed but can't be picked ('' means "all" in the dropdown).
+- **Role benchmarks:** `computeTabStats(tab, matches, prev, { role })` ranks
+  cards on that role's thresholds from `roleBenchmarks.js`, falling back to
+  `STAT_BENCHMARKS`. The role lives in a module variable set only for the
+  length of that call (try/finally), so Coaching and chat (which pass no
+  role) always get the general ladder. `getStatBenchmark(id, role)` and the
+  stat-history chart pass the same role, so a month's tier matches the card.
+
 ### Stat history chart (click a card) — 2026-10
 
 Cards with a green dot open a slide-down chart (`#statHistoryPanel`, between
@@ -747,9 +768,10 @@ and re-renders on every open.
   (`ROLE_STATS`). "Usual" = the 20 earlier games in the same role (fewer than
   5 → all roles, and the summary says so). Tile badges use `ROLE_BENCHMARKS`
   overrides, falling back to the general `STAT_BENCHMARKS`; lane-opponent
-  diffs (GD/CSD/XPD@15) always use the general ladder. **Per-role badges are
-  Coaching only** — Analytics cards cover mixed roles and keep general
-  values. Role thresholds are estimates; tune them in that file.
+  diffs (GD/CSD/XPD@15) always use the general ladder. Analytics cards keep
+  the general values over mixed roles, and switch to a role's thresholds only
+  when the Analytics role filter picks that role (see "Role filter").
+  Role thresholds are estimates; tune them in that file.
 - **Trend switches**: each Trends card has a "Last 10 / All games" switch
   (saved as `config.coachingTrendsAll`, an array of area tabs). All-games mode
   (`areaTrendAll`): value over every Solo/Duo game, verdict/highlights = newer
