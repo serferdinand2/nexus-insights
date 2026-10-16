@@ -459,6 +459,27 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 
 **If you add a stat that reads rawJson or timelineJson, add its tab to `TAB_JSON_NEEDS` or it will silently compute from `null`.**
 
+### Role filter + Roles table (2026-10, issue #10)
+
+- **Role dropdown** (`#roleFilter`) next to the champion filter, filled by
+  `updateRoleDropdown` (filtersPanel.js) with the roles present and their
+  counts. It narrows everything the champion filter does (cards, calendar,
+  time insights, Match History). The Champions page ignores it; it has its
+  own role chips.
+- `renderFilteredMatches` sets `window.analyticsRoleFilter` (the picked role
+  or null) and `window.rolePoolMatches` (the list before the role filter).
+- **Roles table** (`components/roleBreakdown.js`, `#roleBreakdown`) under
+  the Overview cards: games, play rate, win rate, KDA, CS/min, DMG/min, KP
+  per role, from `rolePoolMatches` minus remakes, so it always compares every
+  role. Click a row to filter to it; click it again to clear. "No role"
+  games are listed but can't be picked ('' means "all" in the dropdown).
+- **Role benchmarks:** `computeTabStats(tab, matches, prev, { role })` ranks
+  cards on that role's thresholds from `roleBenchmarks.js`, falling back to
+  `STAT_BENCHMARKS`. The role lives in a module variable set only for the
+  length of that call (try/finally), so Coaching and chat (which pass no
+  role) always get the general ladder. `getStatBenchmark(id, role)` and the
+  stat-history chart pass the same role, so a month's tier matches the card.
+
 ### Stat history chart (click a card) — 2026-10
 
 Cards with a green dot open a slide-down chart (`#statHistoryPanel`, between
@@ -510,6 +531,26 @@ tested). Nav rail button between Match History and Coaching.
   lane opponent" is stored as '' so those rows aren't re-indexed forever.
   Indexing 562 games took ~6 s.
 - No JSON blobs are read; everything comes from scalar columns.
+
+### Patch + period filter (2026-10, issue #6)
+
+- `patch` column (major.minor from `info.gameVersion`, e.g. `16.20`; ''
+  unknown, NULL not computed), written by the computed-stats pipeline and
+  backfilled like the other computed columns (`patch IS NULL`).
+- **Period dropdown** (`#periodFilter`, before the champion dropdown):
+  All time · Last patch / 2 / 3 patches · a single patch (12 newest, with
+  counts) · Last 7 / 30 days, 3 / 6 months, year. Values are strings
+  (`''`, `patches:N`, `patch:16.20`, `days:N`) handled by
+  `services/patches.js` `filterByPeriod` (pure, tested). Games with no
+  patch yet drop out of patch periods only, never out of time windows.
+- `renderFilteredMatches` applies it **first** (`periodMatches`, before the
+  game-mode filter), so the cards, calendar, time insights, champion list,
+  Match History and the Champions page all follow it. Coaching does not:
+  it is about your last games and reads `window.matchesData` directly.
+- `components/periodFilter.js`: the dropdown (rebuilt only when the set of
+  patches changes) and the **Win Rate by Patch** card, which sits beside
+  Win Rate by Game Length (one `ta-right-row`, so the section's height
+  doesn't change).
 
 ### Remakes are excluded from statistics
 
@@ -642,9 +683,9 @@ Two traps, both found by the parity harness:
   for laners vs ~50 jungle/support, and bot lane dies first ~3 min earlier
   than mid. Rows not indexed yet are left out; with none, the card shows "--".
 - Settings → **Export matches to CSV**: `services/csvExport.js` (pure,
-  tested) builds the text from `window.exportableMatches` (current game-mode,
-  champion and calendar filters, remakes included, scalar columns, oldest
-  first, `date` column first, formula-looking text prefixed with `'`).
+  tested) builds the text from `window.exportableMatches` (current period,
+  game-mode, champion, role and calendar filters, remakes included, scalar
+  columns, oldest first, `date` column first, formula-looking text prefixed with `'`).
   Main's `csv:save` IPC shows the save dialog and writes it with a BOM.
 - `test/advancedStats.test.js` (#14) covers `computeAdvancedStatsForMatch`
   on a hand-built game: @15 diffs, CS@10/15/20, early/isolated deaths,
@@ -769,9 +810,10 @@ and re-renders on every open.
   (`ROLE_STATS`). "Usual" = the 20 earlier games in the same role (fewer than
   5 → all roles, and the summary says so). Tile badges use `ROLE_BENCHMARKS`
   overrides, falling back to the general `STAT_BENCHMARKS`; lane-opponent
-  diffs (GD/CSD/XPD@15) always use the general ladder. **Per-role badges are
-  Coaching only** — Analytics cards cover mixed roles and keep general
-  values. Role thresholds are estimates; tune them in that file.
+  diffs (GD/CSD/XPD@15) always use the general ladder. Analytics cards keep
+  the general values over mixed roles, and switch to a role's thresholds only
+  when the Analytics role filter picks that role (see "Role filter").
+  Role thresholds are estimates; tune them in that file.
 - **Trend switches**: each Trends card has a "Last 10 / All games" switch
   (saved as `config.coachingTrendsAll`, an array of area tabs). All-games mode
   (`areaTrendAll`): value over every Solo/Duo game, verdict/highlights = newer

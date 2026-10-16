@@ -294,6 +294,8 @@ function initDatabase() {
         -- Lane opponent's champion (same teamPosition, other team) for the
         -- Champions page matchups. '' = none (no position); NULL = not computed.
         laneOpponent TEXT,
+        -- Game patch, major.minor ('16.20'); '' = unknown, NULL = not computed
+        patch TEXT,
         -- Issue #15. turretDamage NULL = not computed; firstDeathAt NULL = no death
         -- (ms into the game).
         turretDamage INTEGER,
@@ -456,6 +458,7 @@ function initDatabase() {
       'impactRank INTEGER',
       'impactTag TEXT',
       'laneOpponent TEXT',
+      'patch TEXT',
       'turretDamage INTEGER',
       'objectiveDamage INTEGER',
       'firstDeathAt INTEGER'

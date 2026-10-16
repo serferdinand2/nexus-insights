@@ -3,6 +3,7 @@ const {
     getCachedRawJson, getCachedTimelineJson
 } = require('../services/matchService');
 const { RANK_COLORS } = require('./rankTiers');
+const { benchmarkFor } = require('./roleBenchmarks');
 const { impactFor } = require('../services/teamImpact');
 
 // Benchmark thresholds per stat — values represent the MINIMUM needed to qualify for that tier
@@ -74,8 +75,18 @@ const STAT_BENCHMARKS = {
 };
 
 // Evaluate a stat value and return a rank tier name
+// Role whose thresholds apply, set only for the length of one computeTabStats
+// call that asked for it (the Analytics role filter, #10). Coaching and chat
+// call without a role, so they always get the general ladder.
+let benchmarkRole = null;
+
+/** A stat's thresholds: the role's override when there is one, else general. */
+function thresholdsFor(statId, role = benchmarkRole) {
+    return role ? benchmarkFor(statId, role, id => STAT_BENCHMARKS[id] || null) : (STAT_BENCHMARKS[statId] || null);
+}
+
 function evaluateBenchmark(value, statId, higherIsBetter) {
-    const thresholds = STAT_BENCHMARKS[statId];
+    const thresholds = thresholdsFor(statId);
     if (!thresholds || value === null || value === undefined || isNaN(value)) return null;
 
     const tiers = ['challenger','grandmaster','master','diamond','emerald','platinum','gold','silver','bronze','iron'];
@@ -700,11 +711,25 @@ function calcConsistency(matches) {
  * stat-history chart (statHistory.js) to draw the Iron → Challenger bands with
  * exactly the boundaries the cards are coloured by.
  */
-window.getStatBenchmark = function (statId) {
-    return STAT_BENCHMARKS[statId] || null;
+window.getStatBenchmark = function (statId, role = null) {
+    return thresholdsFor(statId, role);
 };
 
-window.computeTabStats = function(tabName, matches, prevMatches = []) {
+/**
+ * Cards for one Analytics tab. `role` (a teamPosition) ranks the cards on that
+ * role's thresholds from roleBenchmarks.js where it has them: the Analytics
+ * page passes it when its role filter picks one role.
+ */
+window.computeTabStats = function (tabName, matches, prevMatches = [], { role = null } = {}) {
+    benchmarkRole = role || null;
+    try {
+        return computeCards(tabName, matches, prevMatches);
+    } finally {
+        benchmarkRole = null;
+    }
+};
+
+function computeCards(tabName, matches, prevMatches = []) {
     if (!matches || matches.length === 0) return [];
     let cards = [];
 
@@ -855,4 +880,4 @@ window.computeTabStats = function(tabName, matches, prevMatches = []) {
     }
 
     return cards;
-};
+}

@@ -406,7 +406,8 @@ function renderPanel() {
         tabName: state.tab,
         statId: state.statId,
         matches: state.matches,
-        computeTabStats: window.computeTabStats,
+        // Same role as the cards, so a month's tier matches the card's (#10)
+        computeTabStats: (tab, ms, prev) => window.computeTabStats(tab, ms, prev, { role: window.analyticsRoleFilter || null }),
     });
 
     const h   = state.history;
@@ -423,7 +424,7 @@ function redraw() {
     const canvas = $('statHistoryCanvas');
     if (!canvas || !state.history) return;
     const thresholds = typeof window.getStatBenchmark === 'function'
-        ? window.getStatBenchmark(state.statId) : null;
+        ? window.getStatBenchmark(state.statId, window.analyticsRoleFilter || null) : null;
     state.geometry = drawChart(canvas, state.history, thresholds, state.hoverIndex);
 }
 

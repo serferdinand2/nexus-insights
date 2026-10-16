@@ -84,4 +84,30 @@ function updateChampionDropdown(matches) {
     }
 }
 
-module.exports = { activeQueueFilters, initializeFilters, updateChampionDropdown };
+// ---------------------------------------------------------------------------
+// ROLE DROPDOWN (#10)
+// ---------------------------------------------------------------------------
+const ROLE_ORDER = ['TOP', 'JUNGLE', 'MIDDLE', 'BOTTOM', 'UTILITY'];
+
+/** Roles present in `matches` with their game counts; keeps the current pick. */
+function updateRoleDropdown(matches) {
+    const select = document.getElementById('roleFilter');
+    if (!select) return;
+    const { roleLabel } = require('../services/championStats');
+    const current = select.value;
+    const counts = {};
+    matches.forEach(m => { const r = m.teamPosition || ''; counts[r] = (counts[r] || 0) + 1; });
+
+    select.innerHTML = '';
+    const add = (value, text) => {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = text;
+        select.appendChild(opt);
+    };
+    add('', 'All roles');
+    ROLE_ORDER.forEach(r => { if (counts[r] || r === current) add(r, `${roleLabel(r)} (${counts[r] || 0})`); });
+    select.value = current;
+}
+
+module.exports = { activeQueueFilters, initializeFilters, updateChampionDropdown, updateRoleDropdown };

@@ -2,6 +2,7 @@ const { getMatchIds, getMatchData, getMatchTimeline } = require('./riotApi');
 const { db } = require('./database');
 const { compressJson, decompressJson, decompressJsonAsync } = require('./compression');
 const { computeTeamImpact } = require('./teamImpact');
+const { patchOf } = require('./patches');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
 // Only sync these queue types (Ranked Solo, Ranked Flex, Normal)
@@ -143,7 +144,7 @@ async function getMatches(limit = null) {
                 dmgShare, killParticipation, dmgTakenPerDeath, multikills,
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
-                impactScore, impactRank, impactTag, laneOpponent,
+                impactScore, impactRank, impactTag, laneOpponent, patch,
                 turretDamage, objectiveDamage, firstDeathAt
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
@@ -463,6 +464,7 @@ const COMPUTED_STAT_COLUMNS = [
     'statsComputedAt', 'isRemake',
     'impactScore', 'impactRank', 'impactTag',
     'laneOpponent',
+    'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
 ];
 
@@ -502,10 +504,10 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank IS NULL` / `laneOpponent IS NULL` / `turretDamage IS NULL` pick
- * up rows indexed before those columns existed. Neither stays NULL after a pass: the champion + team
- * that find "you" come from the same participant the row was synced from, and
- * "no lane opponent" is stored as ''.
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage IS NULL` pick up
+ * rows indexed before those columns existed. None stays NULL after a pass: the
+ * champion + team that find "you" come from the same participant the row was
+ * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
  */
 async function backfillComputedStats(onProgress) {
     const rows = await dbAll(`
@@ -513,7 +515,7 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR turretDamage IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -565,6 +567,7 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         isRemake: null,
         impactScore: null, impactRank: null, impactTag: null,
         laneOpponent: null,
+        patch: null,
         turretDamage: null, objectiveDamage: null, firstDeathAt: null
     };
 
@@ -595,6 +598,9 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
             result.impactRank  = impact.rank;
             result.impactTag   = impact.tag;
         }
+
+        // === Patch ('16.20'; '' when Riot didn't say, so it isn't re-indexed) ===
+        result.patch = patchOf(info.info ? info.info.gameVersion : info.gameVersion);
 
         // === Remake ===
         // Riot's flag is authoritative; the duration check catches payloads
