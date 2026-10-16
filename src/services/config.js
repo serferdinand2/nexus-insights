@@ -3,6 +3,8 @@ const path = require('path');
 const { userDataPath } = require('./paths');
 
 const configPath = path.join(userDataPath, 'config.json');
+const tmpPath    = configPath + '.tmp';   // written first, then renamed over config.json
+const backupPath = configPath + '.bak';   // the save before the current one
 
 // Default config (empty - user must fill in)
 const defaultConfig = {
@@ -40,23 +42,43 @@ function loadConfig() {
     if (cachedConfig) return { ...cachedConfig };
 
     ensureUserDataDir();
-    try {
-        if (fs.existsSync(configPath)) {
-            const data = fs.readFileSync(configPath, 'utf8');
-            cachedConfig = { ...defaultConfig, ...JSON.parse(data) };
-            return { ...cachedConfig };
+    // config.json, or the copy kept from the save before it if that one is
+    // missing or doesn't parse (#40)
+    for (const file of [configPath, backupPath]) {
+        try {
+            if (fs.existsSync(file)) {
+                const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+                if (data === null || typeof data !== 'object') throw new Error('not an object');
+                if (file === backupPath) console.warn('config.json unreadable; using the previous save');
+                cachedConfig = { ...defaultConfig, ...data };
+                return { ...cachedConfig };
+            }
+        } catch (err) {
+            console.error(`Error loading ${path.basename(file)}:`, err.message);
         }
-    } catch (err) {
-        console.error('Error loading config:', err);
     }
     return { ...defaultConfig };
 }
 
-// Save config to file
+// Save config to file: write a temp file, keep the current file as .bak, then
+// rename the temp file over it. A crash mid-write can only ever leave a broken
+// .tmp, never a half-written config.json (#40).
 function saveConfig(config) {
     ensureUserDataDir();
     try {
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+        fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2));
+        if (fs.existsSync(configPath)) {
+            try { fs.copyFileSync(configPath, backupPath); } catch (e) { console.warn('Could not keep config backup:', e.message); }
+        }
+        try {
+            fs.renameSync(tmpPath, configPath);
+        } catch (err) {
+            // Windows can refuse the rename while something (antivirus, a sync
+            // client) has the file open; write it directly rather than not at all
+            console.warn('Config rename failed, writing in place:', err.message);
+            fs.writeFileSync(configPath, fs.readFileSync(tmpPath));
+            fs.rmSync(tmpPath, { force: true });
+        }
         cachedConfig = { ...defaultConfig, ...config };
         return true;
     } catch (err) {
