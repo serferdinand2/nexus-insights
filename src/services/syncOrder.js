@@ -41,4 +41,14 @@ function shouldStopSync(err) {
     return err.response?.status !== 404;
 }
 
-module.exports = { oldestFirst, shouldStopSync, matchNumber };
+/**
+ * Start of the current season: January 1 (UTC) of the year `now` is in, in
+ * milliseconds. A first sync downloads every game since then (#38); it used to
+ * be a fixed 2026-01-01, so from 2027 new installs would also have pulled all
+ * of 2026. Fill gaps can still reach older games on purpose.
+ */
+function seasonStart(now = Date.now()) {
+    return Date.UTC(new Date(now).getUTCFullYear(), 0, 1);
+}
+
+module.exports = { oldestFirst, shouldStopSync, matchNumber, seasonStart };

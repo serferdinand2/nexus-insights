@@ -179,3 +179,11 @@ test('Fill gaps from a chosen date lists only games since then', async () => {
     const r = await fillGaps(PUUID, null, { since: RIOT_GAMES[25].at });
     assert.deepEqual([r.listed, r.newMatches], [5, 5]);
 });
+
+test('seasonStart: January 1 (UTC) of the current year (#38)', () => {
+    const { seasonStart } = require(path.join(SRC, 'services', 'syncOrder.js'));
+    assert.equal(seasonStart(Date.UTC(2026, 9, 16, 12)), Date.UTC(2026, 0, 1));
+    assert.equal(seasonStart(Date.UTC(2027, 0, 1, 0, 0, 1)), Date.UTC(2027, 0, 1));
+    assert.equal(seasonStart(Date.UTC(2027, 11, 31, 23, 59)), Date.UTC(2027, 0, 1));
+    assert.equal(new Date(seasonStart()).getUTCFullYear(), new Date().getUTCFullYear());
+});

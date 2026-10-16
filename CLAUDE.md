@@ -220,7 +220,7 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
 ## Key Architecture Patterns
 
 ### Match Sync Strategy
-- **First sync**: All matches since Season Start (Jan 1, 2026), paginated (100/request)
+- **First sync**: All matches since January 1 (UTC) of the current year (`seasonStart()` in `services/syncOrder.js`, #38; it used to be a fixed 2026-01-01), paginated (100/request)
 - **Subsequent syncs**: Forward-only — only after latest stored match timestamp
 - **Oldest first, stop on failure** (issue #13): new games are stored oldest
   first (`services/syncOrder.js`, tested), and a game that fails for a reason
