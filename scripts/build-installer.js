@@ -223,7 +223,11 @@ async function checkToken() {
              `  Then replace the old token in ${where} and run this again.`);
     }
     const body = await res.json().catch(() => ({}));
-    if (!res.ok || (body.permissions && !body.permissions.push)) {
+    // On GitHub Actions the token's rights come from the workflow's
+    // `permissions:` (contents: write), and the API reports push: false for
+    // it anyway, so that flag only means something for a personal token.
+    const onActions = process.env.GITHUB_ACTIONS === 'true';
+    if (!res.ok || (!onActions && body.permissions && !body.permissions.push)) {
         restoreVersion();
         fail(`The token works but can't publish to ${owner}/${repo} (HTTP ${res.status}).\n` +
              '  Give it access to the nexus-insights repository with Contents = Read and write.');
