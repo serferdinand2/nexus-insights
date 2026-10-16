@@ -2,6 +2,8 @@
 
 // Get position icon URL from Community Dragon
 const { escapeHtml } = require('./dom');
+const { decodePurchases, lastBoughtAt } = require('../services/itemBuild');
+const { formatClock } = require('../services/matchTimeline');
 
 function getPositionIcon(teamPosition) {
     if (!teamPosition) return null;
@@ -94,8 +96,9 @@ function getRankFromKP(kp) {
 // Render table row for a match
 function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon, formatDamage, renderRunes, renderSummonerSpells) {
     const isWin = match.win === 1;
-    const kda = match.deaths === 0 ? 'Perfect' : ((match.kills + match.assists) / match.deaths).toFixed(2);
-    const kdaNum = match.deaths === 0 ? 99 : ((match.kills + match.assists) / match.deaths);
+    // No deaths counts as one, like the Analytics cards: 0/0/1 is 1.00, not "Perfect"
+    const kdaNum = (match.kills + match.assists) / Math.max(1, match.deaths);
+    const kda = kdaNum.toFixed(2);
 
     // Calculate KP%
     const totalTeamKills = match.teamKills || 0;
@@ -120,19 +123,17 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
 
     // Build items HTML for table display in 2 rows (smaller icons)
     const items = [match.item0, match.item1, match.item2, match.item3, match.item4, match.item5, match.item6];
-    const itemsRow1 = items.slice(0, 4).map(itemId => {
+    // "Bought at" in the item tooltip, from the stored purchases (#7)
+    const bought = lastBoughtAt(decodePurchases(match.itemPurchases));
+    const itemSlot = itemId => {
         if (itemId && itemId > 0) {
-            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}" onerror="this.style.display='none'"></div>`;
+            const at = bought.has(itemId) ? ` data-bought="${formatClock(bought.get(itemId))}"` : '';
+            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}"${at} onerror="this.style.display='none'"></div>`;
         }
         return `<div class="table-item-slot"></div>`;
-    }).join('');
-
-    const itemsRow2 = items.slice(4, 7).map(itemId => {
-        if (itemId && itemId > 0) {
-            return `<div class="table-item-slot has-item"><img src="${DDRAGON_BASE}/img/item/${itemId}.png" alt="Item" data-item-id="${itemId}" onerror="this.style.display='none'"></div>`;
-        }
-        return `<div class="table-item-slot"></div>`;
-    }).join('');
+    };
+    const itemsRow1 = items.slice(0, 4).map(itemSlot).join('');
+    const itemsRow2 = items.slice(4, 7).map(itemSlot).join('');
 
     // Remakes stay visible in the list but are excluded from every statistic,
     // so they're labelled to explain why the counts don't add up.
@@ -148,7 +149,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
                     <div class="table-champion-icon">
                         ${champIcon ? `<img src="${champIcon}" alt="${escapeHtml(match.championName)}" onerror="this.style.display='none'">` : ''}
                     </div>
-                    <span class="table-champion-name">${formatChampionName(match.championName)}</span>
+                    <span class="table-champion-name">${formatChampionName(match.championName)}</span>${renderImpactTag(match)}
                 </div>
             </td>
             <td class="center">
@@ -172,9 +173,6 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
             </td>
             <td class="center">${match.champLevel || '?'}</td>
             <td class="center">${durationMins}m</td>
-            <td class="center">
-                <span class="table-outcome-badge ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</span>${renderImpactTag(match)}
-            </td>
             <td class="center">${renderLpDelta(match.matchId)}</td>
             <td class="center">${match.kills}</td>
             <td class="center">${match.deaths}</td>
@@ -194,7 +192,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
 }
 
 /**
- * MVP / SVP next to the result: you were the highest-impact player on your
+ * MVP / SVP next to the champion: you were the highest-impact player on your
  * team (services/teamImpact.js). Stored per match, so no rawJson is needed.
  */
 function renderImpactTag(match) {
@@ -283,7 +281,6 @@ function renderMatchTable(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getCh
                         <th class="center">Position</th>
                         <th class="center">Level</th>
                         <th class="center">Duration</th>
-                        <th class="center">Result</th>
                         <th class="center" title="LP gained or lost on this game. Only populated for games played with the app open — see the column for why.">LP</th>
                         <th class="center">K</th>
                         <th class="center">D</th>

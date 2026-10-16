@@ -59,6 +59,9 @@
         <button class="nav-drawer-btn" id="navChampions" onclick="switchTopTab('champions')">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></span><span class="nav-text">Champions</span>
         </button>
+        <button class="nav-drawer-btn" id="navTeammates" onclick="switchTopTab('teammates')">
+            <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17" cy="9" r="2.6"/><path d="M15.5 14.3c3 .3 5.5 2.6 5.5 5.7"/></svg></span><span class="nav-text">Allies</span>
+        </button>
         <button class="nav-drawer-btn" id="navCoaching" onclick="switchTopTab('coaching')">
             <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></svg></span><span class="nav-text">Coaching</span>
             <span class="nav-badge" id="coachingBadge"></span>
@@ -193,6 +196,9 @@
 
                     <!-- Roles table, Overview only — components/roleBreakdown.js -->
                     <div class="role-breakdown" id="roleBreakdown" hidden></div>
+
+                    <!-- Death map, Death Review only — components/deathMapPanel.js -->
+                    <div class="death-map" id="deathMap" hidden></div>
 
                     <!-- Gold/XP gap to the lane opponent per minute, Lane Phase only — components/laneGapChart.js -->
                     <div class="lane-gap" id="laneGapChart" hidden></div>
@@ -493,6 +499,10 @@
                         <span class="setup-datadir-label">Export the matches your current filters show, one row per game, for a spreadsheet</span>
                         <button type="button" class="setup-datadir-btn" onclick="exportMatchesCsv()">Export matches to CSV</button>
                     </div>
+                    <div class="setup-datadir">
+                        <span class="setup-datadir-label">Missing games? A sync that was interrupted in the past can have skipped some. This fetches every game since the season started that isn't stored yet.</span>
+                        <button type="button" class="setup-datadir-btn" onclick="fillGapsFromSettings()">Fill gaps</button>
+                    </div>
                     <!-- Riot's developer policy asks public apps to carry this notice;
                          it lives here now instead of a footer on every page. -->
                     <p class="setup-legal">Nexus Insights isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc. Match data from the <a href="#" onclick="require('electron').shell.openExternal('https://developer.riotgames.com'); return false;">Riot Games API</a>.</p>
@@ -543,6 +553,19 @@
                 <div class="champions-list" id="championsList"></div>
                 <div class="champions-detail" id="championsDetail"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Teammates Tab — components/teammatesPanel.js (#11) -->
+    <div id="teammates-tab" style="display:none;">
+        <div class="champions-shell">
+            <div class="coach-header">
+                <div>
+                    <h2>Teammates</h2>
+                    <p>Players you've had on your team in at least 3 games, with the current game-mode and period filters.</p>
+                </div>
+            </div>
+            <div class="teammates-list" id="teammatesList"></div>
         </div>
     </div>
 

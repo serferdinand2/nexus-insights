@@ -136,3 +136,46 @@ test('a game Riot no longer has is skipped, not a reason to stop', async () => {
     assert.equal(result.newMatches, 29);
     assert.equal(stored.has(RIOT_GAMES[3].id), false);
 });
+
+// ---------------------------------------------------------------------------
+// Fill gaps (#18): games an old sync skipped
+// ---------------------------------------------------------------------------
+const { fillGaps } = require(path.join(SRC, 'services', 'matchService.js'));
+
+test('Fill gaps stores the games an old sync skipped, which a normal sync never would (#18)', async () => {
+    stored.clear();
+    keyWorksFor = Infinity;
+    // A hole in the middle: games 10–19 missing
+    for (const g of [...RIOT_GAMES.slice(0, 10), ...RIOT_GAMES.slice(20)]) stored.set(g.id, { gameCreation: g.at });
+
+    assert.equal((await syncMatches(PUUID)).newMatches, 0, 'a normal sync only looks after the newest game');
+
+    const statuses = [];
+    const r = await fillGaps(PUUID, (c, t, status) => statuses.push(status));
+    assert.deepEqual([r.listed, r.missing, r.newMatches], [30, 10, 10]);
+    assert.deepEqual([...stored.keys()].sort(), RIOT_GAMES.map(g => g.id).sort());
+    assert.ok(statuses.includes('listing') && statuses.includes('complete'));
+
+    assert.equal((await fillGaps(PUUID)).missing, 0, 'nothing left to fill');
+});
+
+test('Fill gaps follows the same stop rule: oldest first, stop on an expired key', async () => {
+    stored.clear();
+    for (const g of RIOT_GAMES.slice(20)) stored.set(g.id, { gameCreation: g.at });   // 0–19 missing
+
+    keyWorksFor = 5;
+    await assert.rejects(fillGaps(PUUID), err => err.response.status === 403 && err.savedBeforeStop === 5);
+    assert.ok(RIOT_GAMES.slice(0, 5).every(g => stored.has(g.id)), 'the five oldest were stored');
+    assert.ok(!stored.has(RIOT_GAMES[5].id));
+
+    keyWorksFor = Infinity;
+    assert.equal((await fillGaps(PUUID)).newMatches, 15);
+    assert.equal(stored.size, 30);
+});
+
+test('Fill gaps from a chosen date lists only games since then', async () => {
+    stored.clear();
+    keyWorksFor = Infinity;
+    const r = await fillGaps(PUUID, null, { since: RIOT_GAMES[25].at });
+    assert.deepEqual([r.listed, r.newMatches], [5, 5]);
+});

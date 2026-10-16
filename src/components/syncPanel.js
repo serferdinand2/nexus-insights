@@ -8,6 +8,7 @@
 const { getPuuidByRiotId }    = require('../services/riotApi');
 const {
     syncMatches,
+    fillGaps,
     backfillTimelines,
     backfillAdvancedStats,
     backfillComputedStats,
@@ -145,10 +146,25 @@ window.handleSync = async function (options = {}) {
         // Fetch rank before heavy API calls to avoid rate-limit issues
         await window.fetchAndDisplayRankData();
 
-        updateStatus('loading', 'Syncing Matches', 'Fetching your recent match history...');
-        const result = await syncMatches(puuid, (current, total, status, stats) => {
-            updateProgress(current, total, stats);
-        });
+        // Fill gaps (#18, Settings): list every game since the season started
+        // and store the missing ones. Same per-game path and follow-up steps.
+        const gaps = options.fillGaps === true;
+        let result;
+        if (gaps) {
+            updateStatus('loading', 'Filling Gaps', 'Listing every game since the season started...');
+            result = await fillGaps(puuid, (current, total, status, stats) => {
+                if (status === 'listing') {
+                    updateStatus('loading', 'Filling Gaps', `Listing every game since the season started: ${stats.listed} so far...`);
+                } else {
+                    updateProgress(current, total, stats);
+                }
+            });
+        } else {
+            updateStatus('loading', 'Syncing Matches', 'Fetching your recent match history...');
+            result = await syncMatches(puuid, (current, total, status, stats) => {
+                updateProgress(current, total, stats);
+            });
+        }
         hideProgress();
 
         const backfillResult = await backfillTimelines((current, total) => {
@@ -194,6 +210,10 @@ window.handleSync = async function (options = {}) {
                 result.newMatches > 0
                     ? `${result.newMatches} new match added to your history`
                     : 'No new match found yet — it may still be publishing');
+        } else if (gaps) {
+            updateStatus('success', 'Gaps Filled', result.missing > 0
+                ? `${result.missing} missing games found, ${result.newMatches} added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`
+                : `Nothing missing: all ${result.listed} games since the season started are stored`);
         } else {
             updateStatus('success', 'Sync Complete', `${result.newMatches} new matches added${timelineMsg}${advancedMsg}${computedMsg}${rankMsg}`);
         }
@@ -249,7 +269,7 @@ window.handleSync = async function (options = {}) {
         // first), so the games before it are stored and the next sync
         // carries on from there. Show what did land.
         if (err.savedBeforeStop > 0) {
-            errorMessage += ` (${err.savedBeforeStop} new games were saved; sync again for the rest)`;
+            errorMessage += ` (${err.savedBeforeStop} new games were saved; ${options.fillGaps ? 'run Fill gaps' : 'sync'} again for the rest)`;
             try { await window.loadMatchHistory(true); } catch (e) { console.warn('Reload after partial sync failed:', e.message); }
         }
 

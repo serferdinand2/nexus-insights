@@ -1604,25 +1604,6 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
     font-size: 12px;
 }
 
-.table-outcome-badge {
-    font-size: 9px;
-    font-weight: 700;
-    padding: 3px 8px;
-    border-radius: 3px;
-    text-transform: uppercase;
-    display: inline-block;
-}
-
-.table-outcome-badge.win {
-    background: rgba(34, 197, 94, 0.2);
-    color: #22c55e;
-}
-
-.table-outcome-badge.loss {
-    background: rgba(239, 68, 68, 0.2);
-    color: #ef4444;
-}
-
 .table-kda-high {
     color: #22c55e;
     font-weight: 700;
@@ -5156,6 +5137,377 @@ body.window-maximized .titlebar-btn .icon-restore  { display: block; }
 
 @media (max-width: 1250px) {
     #filterSection .role-filter-wrapper { margin-left: 0; }
+}
+
+/* ── Teammates page (components/teammatesPanel.js, #11) ── */
+.teammates-list {
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+    overflow: hidden;
+}
+
+.tm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+}
+
+.tm-table th {
+    padding: 10px 12px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.tm-table td {
+    padding: 8px 12px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.tm-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.tm-table tr.is-low td {
+    opacity: 0.7;
+}
+
+.tm-name {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.tm-tag,
+.tm-wl,
+.tm-dim {
+    color: var(--text-tertiary);
+    font-weight: 400;
+}
+
+.tm-wl {
+    margin-left: 6px;
+    font-size: 11px;
+}
+
+.tm-strip {
+    display: flex;
+    gap: 2px;
+}
+
+.tm-strip i {
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+}
+
+.tm-strip i.w {
+    background: rgba(34, 197, 94, 0.75);
+}
+
+.tm-strip i.l {
+    background: rgba(239, 68, 68, 0.7);
+}
+
+.tm-empty {
+    padding: 24px;
+    color: var(--text-tertiary);
+    font-size: 12px;
+    text-align: center;
+}
+
+/* ── Game report in the expanded row (components/gameReportPanel.js, #9) ── */
+.game-report {
+    box-sizing: border-box;
+    margin: 0 0 14px;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.game-report:empty {
+    display: none;
+}
+
+.gr-head {
+    margin-bottom: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.gr-head span {
+    margin-left: 6px;
+    color: var(--text-tertiary);
+    font-weight: 500;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.gr-body {
+    display: grid;
+    grid-template-columns: minmax(260px, 1fr) minmax(380px, 1.2fr);
+    gap: 18px;
+    align-items: start;
+}
+
+.gr-sec {
+    margin-bottom: 10px;
+    padding-left: 10px;
+    border-left: 3px solid var(--line-strong, rgba(255, 255, 255, 0.15));
+    font-size: 12px;
+}
+
+.gr-sec b {
+    display: block;
+    margin-bottom: 2px;
+    color: var(--text-primary);
+}
+
+.gr-sec ul {
+    margin: 0;
+    padding-left: 16px;
+    color: var(--text-secondary);
+}
+
+.gr-sec--good { border-left-color: var(--success); }
+.gr-sec--bad { border-left-color: var(--error); }
+.gr-sec--blunder { border-left-color: var(--warning); }
+
+.gr-empty {
+    color: var(--text-tertiary);
+}
+
+.gr-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.gr-table th {
+    padding: 6px 8px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.gr-table th span {
+    margin-left: 4px;
+    font-weight: 500;
+    letter-spacing: 0;
+    opacity: 0.7;
+}
+
+.gr-table td {
+    padding: 5px 8px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.gr-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.gr-table .gr-this {
+    color: var(--text-primary);
+    font-weight: 700;
+}
+
+/* The comparison cells say how THIS game did against that baseline */
+.gr-table .gr-good { color: var(--success); }
+.gr-table .gr-bad { color: var(--error); }
+.gr-table .gr-none { color: var(--text-tertiary); }
+
+.gr-legend {
+    margin-top: 6px;
+    color: var(--text-tertiary);
+    font-size: 11px;
+    text-align: right;
+}
+
+@media (max-width: 1100px) {
+    .gr-body { grid-template-columns: 1fr; }
+}
+
+/* ── Death map under the Death Review cards (components/deathMapPanel.js, #8) ── */
+.death-map {
+    margin-top: var(--gutter);
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-card);
+    background: var(--surface);
+}
+
+.death-map[hidden] {
+    display: none;
+}
+
+.dm-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.dm-title {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.dm-sub,
+.dm-note,
+.dm-empty {
+    color: var(--text-tertiary);
+    font-size: 11px;
+}
+
+.dm-body {
+    display: grid;
+    grid-template-columns: minmax(260px, 340px) 1fr;
+    gap: 18px;
+    align-items: start;
+}
+
+.dm-map {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(0, 0, 0, 0.3);
+}
+
+.dm-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+.dm-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.dm-table th {
+    padding: 6px 8px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-align: left;
+    text-transform: uppercase;
+}
+
+.dm-table td {
+    padding: 6px 8px;
+    border-top: 1px solid var(--line);
+    color: var(--text-secondary);
+}
+
+.dm-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.dm-tip {
+    margin: 12px 0 8px;
+    padding: 8px 10px;
+    border-left: 3px solid var(--accent-primary);
+    border-radius: 4px;
+    background: rgba(var(--accent-rgb), 0.07);
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.dm-legend {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0 4px;
+    color: var(--text-secondary);
+    font-size: 11px;
+}
+
+.dm-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+}
+
+.dm-dot--one {
+    background: rgba(250, 204, 21, 0.6);
+}
+
+.dm-dot--many {
+    margin-left: 10px;
+    background: rgba(239, 68, 68, 0.9);
+}
+
+@media (max-width: 900px) {
+    .dm-body { grid-template-columns: 1fr; }
+}
+
+/* ── Build order on the Champions page (#7) ── */
+.ch-build-grid {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 6px;
+}
+
+.ch-build-head {
+    margin-bottom: 4px;
+    color: var(--text-tertiary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.ch-build-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.ch-build-row.is-low {
+    opacity: 0.6;
+}
+
+.ch-build-icons {
+    display: inline-flex;
+    gap: 2px;
+}
+
+.ch-build-n {
+    min-width: 20px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* "Bought at 14:32" in the item tooltip (#7) */
+.item-bought {
+    color: var(--accent-primary);
+    font-size: 11px;
+    font-weight: 600;
 }
 
 /* ── Roles table under the Overview cards (components/roleBreakdown.js) ── */

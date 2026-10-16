@@ -4,6 +4,9 @@ const { compressJson, decompressJson, decompressJsonAsync } = require('./compres
 const { computeTeamImpact } = require('./teamImpact');
 const { patchOf } = require('./patches');
 const { computeLaneGaps } = require('./laneGaps');
+const { teammatesOf } = require('./teammates');
+const { purchasesFromTimeline, encodePurchases } = require('./itemBuild');
+const { deathsFromTimeline, encodeDeaths } = require('./deathMap');
 const { platesTakenBy, deadWindows, isDeadAt } = require('./timelineRules');
 const { oldestFirst, shouldStopSync } = require('./syncOrder');
 
@@ -147,7 +150,8 @@ async function getMatches(limit = null) {
                 shutdownsClaimed, shutdownsGiven, shutdownBountyGiven,
                 enemyTeamKills, visionAdvantage, goldShare, statsComputedAt, isRemake,
                 impactScore, impactRank, impactTag, laneOpponent, patch,
-                turretDamage, objectiveDamage, firstDeathAt, laneGaps
+                turretDamage, objectiveDamage, firstDeathAt, laneGaps,
+                itemPurchases, deathPositions
          FROM matches
          ORDER BY gameCreation DESC${limit ? ' LIMIT ?' : ''}`;
 
@@ -307,6 +311,19 @@ async function syncMatches(puuid, onProgress) {
         return { newMatches: 0, skipped, total: allMatchIds.length };
     }
 
+    const { newMatches, queueSkipped, newMatchIds } = await storeGames(puuid, matchIds, onProgress, skipped);
+    return { newMatches, skipped: skipped + queueSkipped, total: matchIds.length, newMatchIds };
+}
+
+/**
+ * Store these games through the one per-game path: oldest first (the caller
+ * sorts), the #13 stop rule, computed stats on the way in. syncMatches and
+ * fillGaps both use it, so the two can't drift apart.
+ *
+ * @param {string[]} matchIds  not yet stored, oldest first
+ * @param {number}   skipped   already-stored count, for the progress readout
+ */
+async function storeGames(puuid, matchIds, onProgress, skipped = 0) {
     let newMatches = 0;
     let queueSkipped = 0;
     let processed = 0;
@@ -449,7 +466,36 @@ async function syncMatches(puuid, onProgress) {
             alreadyInDB: skipped
         });
     }
-    return { newMatches, skipped: skipped + queueSkipped, total: matchIds.length, newMatchIds };
+    return { newMatches, queueSkipped, newMatchIds };
+}
+
+/**
+ * Fill gaps (#18): store every game Riot lists since `since` (season start
+ * by default) that isn't stored yet.
+ *
+ * A normal sync can't do this: it lists only games after the newest stored
+ * one, and getMatchIds stops at the first stored id. Holes left by syncs
+ * from before #13 therefore stay forever. This lists everything (one call
+ * per 100 games per queue), then stores the missing ones oldest first
+ * through storeGames, so the #13 stop rule applies here too.
+ *
+ * Progress: onProgress(0, 0, 'listing', { listed }) while listing, then the
+ * same calls as a sync.
+ */
+async function fillGaps(puuid, onProgress, { since = RANKED_SEASON_START } = {}) {
+    const existingIds = new Set((await dbAll('SELECT matchId FROM matches')).map(r => r.matchId));
+    const listed = new Set();
+    for (const queueId of ALLOWED_QUEUES) {
+        for (const id of await getMatchIds(puuid, since, queueId, null)) listed.add(id);
+        if (onProgress) onProgress(0, 0, 'listing', { listed: listed.size });
+    }
+    const missing = oldestFirst(listed).filter(id => !existingIds.has(id));
+    if (!missing.length) {
+        if (onProgress) onProgress(0, 0, 'complete', { new: 0, queueFiltered: 0, alreadyInDB: listed.size });
+        return { listed: listed.size, missing: 0, newMatches: 0, newMatchIds: [] };
+    }
+    const result = await storeGames(puuid, missing, onProgress, listed.size - missing.length);
+    return { listed: listed.size, missing: missing.length, newMatches: result.newMatches, newMatchIds: result.newMatchIds };
 }
 
 // Compute advanced stats given the participant index and parsed data
@@ -469,6 +515,7 @@ const COMPUTED_STAT_COLUMNS = [
     'patch',
     'turretDamage', 'objectiveDamage', 'firstDeathAt',
     'laneGaps',
+    'itemPurchases', 'deathPositions',
     // Was a legacy column; recomputed since the dead/alive rule was fixed
     'objectiveRate',
 ];
@@ -509,7 +556,8 @@ async function saveComputedStats(matchId, stats, { includeLegacy = false } = {})
  * Fill in the precomputed columns for matches that predate them.
  * Safe to re-run; only touches rows where the values are still NULL.
  *
- * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps IS NULL` pick up
+ * `impactRank` / `laneOpponent` / `patch` / `turretDamage` / `laneGaps` /
+ * `itemPurchases` / `deathPositions IS NULL` pick up
  * rows indexed before those columns existed. None stays NULL after a pass: the
  * champion + team that find "you" come from the same participant the row was
  * synced from, and "none" / "unknown" is stored as '' (turretDamage as 0).
@@ -520,7 +568,8 @@ async function backfillComputedStats(onProgress) {
         FROM matches
         WHERE rawJson IS NOT NULL
           AND (statsComputedAt IS NULL OR impactRank IS NULL OR laneOpponent IS NULL
-               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL)
+               OR patch IS NULL OR turretDamage IS NULL OR laneGaps IS NULL
+               OR itemPurchases IS NULL OR deathPositions IS NULL)
         ORDER BY gameCreation DESC
     `);
 
@@ -574,7 +623,8 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
         laneOpponent: null,
         patch: null,
         turretDamage: null, objectiveDamage: null, firstDeathAt: null,
-        laneGaps: null
+        laneGaps: null,
+        itemPurchases: null, deathPositions: null
     };
 
     try {
@@ -674,9 +724,16 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
 
         // '' = no lane data for this game; filled in below when there is
         result.laneGaps = '';
+        result.itemPurchases = '';      // #7, '' = no timeline / nothing bought
+        result.deathPositions = '';     // #8, '' = no timeline / no deaths
         if (!timeline || !timeline.info || !timeline.info.frames) return result;
 
         const frames = timeline.info.frames;
+
+        // === What you bought, and where you died (#7, #8) — stored compactly so
+        // the tooltips, build tables and death map never re-parse timelines ===
+        result.itemPurchases  = encodePurchases(purchasesFromTimeline(timeline, myPId));
+        result.deathPositions = encodeDeaths(deathsFromTimeline(timeline, myPId, me.teamId));
 
         // === Gold / XP gap to the lane opponent, minute 0–20 (#12) ===
         if (laneOpponent) {
@@ -817,6 +874,51 @@ function computeAdvancedStatsForMatch(matchData, timelineData, myChampionName, m
     return result;
 }
 
+/**
+ * Teammates per game (#11): matchId → [{ puuid, name }].
+ *
+ * Kept in a small table of its own, `match_teammates`, filled from rawJson
+ * the first time it's needed and then only for games added since. Reading
+ * every blob on each visit would pin hundreds of MB (see "Lazy JSON
+ * Loading"), so missing games are done 25 at a time and the blobs dropped.
+ */
+async function loadTeammates(onProgress) {
+    await dbRun(`CREATE TABLE IF NOT EXISTS match_teammates (
+        matchId TEXT PRIMARY KEY,
+        teammates TEXT NOT NULL
+    )`);
+    const missing = await dbAll(`
+        SELECT m.matchId, m.championName, m.teamId FROM matches m
+        LEFT JOIN match_teammates t ON t.matchId = m.matchId
+        WHERE t.matchId IS NULL AND m.rawJson IS NOT NULL`);
+
+    for (let i = 0; i < missing.length; i += 25) {
+        const batch = missing.slice(i, i + 25);
+        const blobs = await dbAll(
+            `SELECT matchId, rawJson FROM matches WHERE matchId IN (${batch.map(() => '?').join(',')})`,
+            batch.map(r => r.matchId));
+        const rawById = new Map(blobs.map(b => [b.matchId, b.rawJson]));
+        for (const row of batch) {
+            let list = [];
+            try {
+                list = teammatesOf(await decompressJsonAsync(rawById.get(row.matchId)), row.championName, row.teamId);
+            } catch (e) {
+                console.warn(`Teammates unavailable for ${row.matchId}:`, e.message);
+            }
+            await dbRun('INSERT OR REPLACE INTO match_teammates (matchId, teammates) VALUES (?, ?)',
+                [row.matchId, JSON.stringify(list)]);
+        }
+        if (onProgress) onProgress(Math.min(i + 25, missing.length), missing.length);
+    }
+
+    const rows = await dbAll('SELECT matchId, teammates FROM match_teammates');
+    const out = new Map();
+    for (const r of rows) {
+        try { out.set(r.matchId, JSON.parse(r.teammates)); } catch { /* skip a bad row */ }
+    }
+    return out;
+}
+
 // Get league/rank data for a PUUID (using new PUUID-based endpoint)
 async function getLeagueData(puuid) {
     try {
@@ -847,7 +949,7 @@ async function backfillTimelines(onProgress) {
             const timelineData = await getMatchTimeline(matchId);
             // laneGaps back to NULL: it was stored as '' without a timeline,
             // so the computed-stats backfill has to look at this game again
-            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
+            await dbRun("UPDATE matches SET timelineJson = ?, laneGaps = NULL, itemPurchases = NULL, deathPositions = NULL WHERE matchId = ?", [compressJson(timelineData), matchId]);
             updated++;
             console.log(`[${i + 1}/${rows.length}] Timeline saved for ${matchId}`);
         } catch (err) {
@@ -1039,7 +1141,7 @@ const {
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints
 } = require('./database');
 
-module.exports = { syncMatches, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
+module.exports = { syncMatches, fillGaps, loadTeammates, getMatches, getStats, getMatchById, getLeagueData, backfillTimelines, backfillAdvancedStats, getMatchParticipantRanks, fetchRanksForNewMatches, saveLpSnapshot, getLpHistory,
     recordLpReading, getLpReadings, attachLpReadingsToMatches, getLpDeltasByMatch, absoluteLp,
     addLpCheckpoint, deleteLpCheckpoint, getLpCheckpoints,
     loadRawJson, loadTimelineJson, getCachedRawJson, getCachedTimelineJson, clearJsonCache,

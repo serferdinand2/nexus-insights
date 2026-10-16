@@ -99,7 +99,7 @@ src/
 
 - **Dark theme** throughout, with gold/teal CSS custom property accents
 - **Title bar**: Nexus logo + name on the left, ⟳ update button and ⚙ settings (SVG) top-right
-- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Coaching, Chat, Skins
+- **Left nav rail** (always visible): Analytics (default), Match History, Champions, Allies (the Teammates page; the full word wraps in the 78px rail), Coaching, Chat, Skins
 - **Analytics tab**:
   - Summoner Name # Tag input + "Sync Matches" button at the top
   - Progress bar with new/filtered/existing counters during sync
@@ -111,7 +111,8 @@ src/
   - Time-insight mini-cards: Best Time of Day, Best Day of Week, Session Stamina (games 1-3/4-6/7+), Win/Loss Streaks
   - Match History list (filterable by queue type + champion dropdown), paginated with "Load 20 More / Load All"
 - **Coaching tab**: Solo/Duo only. Rank header, last-game report (‹ › to step back), focus metric with hit/miss dots, area trends with sparklines, collapsed Details. See "Coaching page (rewritten 2026-10)" below.
-- **Expanded Match Rows**: clicking a match-table row expands an inline game timeline chart (win chance / gold lead / XP lead with event markers) and a full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
+- **Match table**: no Result column (the row colour says win/loss; MVP/SVP sits next to the champion). KDA is (K + A) / max(1, D) everywhere: no "Perfect".
+- **Expanded Match Rows**: clicking a match-table row expands an inline game timeline chart, a game report (#9) (win chance / gold lead / XP lead with event markers) and a full 10-player breakdown (both teams): team impact rank with MVP/SVP, items, runes, summoner spells, KDA, CS/min, damage, GD@15/XPD@15, pings, tower damage. Badge awards shown at the top. (The old full-screen Match Detail Modal was removed 2026-07 — it had become unreachable.)
 - **Setup Modal**: First-run flow — API key (password field), Summoner Name # Tag, Region (select), Platform (select). Accessible anytime via the settings button.
 - **Item/Rune Tooltip**: Hover over any item icon or rune to see name + description.
 
@@ -225,8 +226,16 @@ DB path: `%APPDATA%/nexus-insights/nexus_data.sqlite`
   first (`services/syncOrder.js`, tested), and a game that fails for a reason
   that may pass (network, 401/403, 429/5xx after retries, SQLite write) stops
   the sync, so no newer game is stored past a missing one. 404s and bad match
-  data are skipped, since stopping on them would block every sync. Games lost
-  by syncs before this fix need a "Fill gaps" action (not built yet)
+  data are skipped, since stopping on them would block every sync.
+- **Fill gaps** (issue #18, Settings): `fillGaps(puuid, onProgress, { since })`
+  lists every game since season start (or `since`) in the allowed queues,
+  calling `getMatchIds` with `existingIds = null` so it doesn't stop at the
+  first stored game (that early stop is why a normal sync never fills old
+  holes), and stores the missing ones through `storeGames`, the per-game
+  loop it shares with `syncMatches` (oldest first, same stop rule). Runs as
+  `handleSync({ fillGaps: true })`, so the backfills, rank fetch, LP capture
+  and reload after it are the normal sync's. Progress: `'listing'` with the
+  count, then the usual per-game progress.
 - **Queue filter**: Only stores 420 (Solo), 440 (Flex), 400 (Normal Draft), 430 (Blind), 480 (Swiftplay), 490 (Quickplay), 700 (Clash)
 - **Rate limiting**: Sequential processing, 150ms delay between every API call
 - **Timestamp format**: Both `gameCreation` and Riot API `startTime` use **milliseconds** (13 digits). Passing seconds (10 digits) causes Riot to return all matches (treats it as ms epoch ≈ Jan 1970)
@@ -555,6 +564,83 @@ tested). Nav rail button between Match History and Coaching.
   patches changes) and the **Win Rate by Patch** card, which sits beside
   Win Rate by Game Length (one `ta-right-row`, so the section's height
   doesn't change).
+
+### Teammates page (2026-10, issue #11)
+
+- `components/teammatesPanel.js` (page) + `services/teammates.js` (pure,
+  tested): players you had on your team in 3+ games, with games together,
+  win rate, last played and a win/loss strip of the last 30. Same games as
+  the Champions page (`window.championPoolMatches`: game-mode + period
+  filters, remakes out); re-renders when filters change while open.
+- **Data:** a separate table, `match_teammates (matchId, teammates JSON)`,
+  not a computed-stats column. `matchService.loadTeammates()` creates it if
+  needed, fills only games not in it yet (25 rawJson blobs at a time, then
+  dropped, so the "Lazy JSON Loading" rule holds) and returns matchId →
+  [{ puuid, name }]. Players are keyed by PUUID (survives renames); the name
+  shown is the newest. First open on 566 games reads them all once.
+
+### Game report (2026-10, issue #9)
+
+In every expanded match row, under the timeline (`components/gameReportPanel.js`,
+`services/gameReport.js`, pure, tested). Skipped for remakes.
+
+- **Table:** 9 stats (KDA, KP, CS/min, damage/min, gold/min, vision/min,
+  deaths, GD@15, CSD@15) for this game against your season, this patch and
+  the 7 days before it, same queue and role, never the game itself.
+  **Every value comes from `computeTabStats`** run over [this game] and over
+  each pool, so it can't disagree with the Analytics cards. A cell is green
+  / red when this game is ≥ 10% better / worse than that average (direction
+  from the card's `higherIsBetter`); GD/CSD measure 10% against at least
+  1000 gold / 10 CS, since their averages sit near 0. Pools under 3 games
+  show "–".
+- **Went well / went wrong:** the biggest differences from your season.
+- **Blunders** (timeline): a death in the first 3 min, 3+ deaths to the same
+  champion, two deaths within 3 min, deaths while win chance was ≥ 60%, and
+  the death with the biggest win-chance drop over the next minute (≥ 10
+  points; `matchTimeline.teamSeries`).
+- At most three points per section. The report uses `fitWidth` from
+  matchTimelineChart.js, like the chart, because the expanded row is as
+  wide as the sideways-scrolling table.
+### Item builds (2026-10, issue #7)
+
+- `itemPurchases` column: your purchases as `"itemId:seconds,…"`, oldest
+  first, after `ITEM_UNDO` (undoing a buy removes it; undoing a sale changes
+  nothing). '' = no timeline / nothing bought, NULL = not computed. Written by
+  the computed-stats pipeline; reset to NULL with `laneGaps` when a timeline
+  is downloaded later. Rules in `services/itemBuild.js` (pure, tested).
+- **"Bought at m:ss" in item tooltips:** icons carry `data-bought`;
+  `tooltipSystem.showItemTooltip` adds the line (digits/colon only). Match
+  table from the stored column; expanded row from the full timeline, for all
+  10 players. Items with no purchase event (transformed/upgraded) show none.
+- **Champions page Build order card:** Start (item combos bought in the first
+  60 s), First back (everything within 60 s of the first purchase after
+  that), 1st / 2nd / 3rd item (finished items you still held at the end, in
+  purchase order; **boots left out** of the numbered slots since nearly
+  everyone buys them first). Games, win rate, pick rate; under 5% hidden.
+  Plus "First back: median 3:56 · 49% when earlier · 55% when later".
+- **Economy: Median First Back** card (m:ss). Not benchmarked, and no trend
+  arrow: an earlier back isn't simply better.
+- Win-probability change per item (the optional #3 link) is not done.
+
+### Death map (2026-10, issue #8)
+
+- `deathPositions` column: your deaths as `"x,y,seconds;…"`, turned to the
+  blue side: red-side positions go through `(x, y) → (M − y, M − x)` (M =
+  14980), a reflection across the other diagonal, so top lane stays top
+  lane (flipping both axes would swap top and bottom). '' = none / no
+  timeline. Rules in `services/deathMap.js` (pure, tested).
+- **Death Review → "Where you die"** (`components/deathMapPanel.js`,
+  `#deathMap`, rendered from `renderAnalyticsTab` with the tab's filtered
+  games): Data Dragon's `img/map/map11.png` dimmed, one dot per death, amber
+  → red by how many deaths are within 600 units. "Dense" is relative to the
+  95th percentile, and dots shrink/fade with the count, so hundreds of games
+  still show the map's shape.
+- **Zones by phase:** along the base-to-base diagonal ((x + y) / 2M): < 0.35
+  near your base, > 0.65 enemy territory, else mid-map; phases ≤ 14:00, ≤
+  25:00, later. The takeaway names the biggest change (near-base or
+  enemy-territory share) between the first and last phase, if ≥ 5 points.
+  Coarse by design: the outer parts of the side lanes count as mid-map, so
+  early-game deaths are mostly "mid-map". The panel says so.
 
 ### Remakes are excluded from statistics
 

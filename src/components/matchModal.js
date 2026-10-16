@@ -11,6 +11,9 @@ const { evaluateBadges } = require('./badgeEvaluator');
 const { escapeHtml }     = require('./dom');
 const { computeTeamImpact, IMPACT_AREAS } = require('../services/teamImpact');
 const { renderMatchTimeline } = require('./matchTimelineChart');
+const { renderGameReport } = require('./gameReportPanel');
+const { purchasesFromTimeline, lastBoughtAt } = require('../services/itemBuild');
+const { formatClock } = require('../services/matchTimeline');
 const {
     RUNE_ICONS,
     getChampionIcon,
@@ -50,17 +53,20 @@ function renderImpactCell(impact) {
 }
 
 function renderPlayerRow(player, gameDuration) {
-    const kda    = player.deaths === 0 ? 'Perfect' : ((player.kills + player.assists) / player.deaths).toFixed(2);
-    const kdaNum = player.deaths === 0 ? 99 : (player.kills + player.assists) / player.deaths;
+    // No deaths counts as one, like the Analytics cards: 0/0/1 is 1.00, not "Perfect"
+    const kdaNum = (player.kills + player.assists) / Math.max(1, player.deaths);
+    const kda    = kdaNum.toFixed(2);
     const champIcon = getChampionIcon(player.championName);
     const csPerMin  = gameDuration > 0 ? (player.cs / (gameDuration / 60)).toFixed(1) : '0.0';
     const DDRAGON   = window.DDRAGON_BASE;
 
+    // "Bought at" in the item tooltip (#7)
+    const at = id => (player.boughtAt && player.boughtAt.has(id) ? ` data-bought="${formatClock(player.boughtAt.get(id))}"` : '');
     const itemsTop    = player.items.slice(0, 3).map(id =>
-        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}" alt="Item">` : `<div class="team-item-empty-sm"></div>`
+        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}"${at(id)} alt="Item">` : `<div class="team-item-empty-sm"></div>`
     ).join('');
     const itemsBottom = player.items.slice(3, 7).map(id =>
-        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}" alt="Item">` : `<div class="team-item-empty-sm"></div>`
+        id && id > 0 ? `<img src="${DDRAGON}/img/item/${id}.png" class="team-item-sm" data-item-id="${id}"${at(id)} alt="Item">` : `<div class="team-item-empty-sm"></div>`
     ).join('');
 
     const primaryPath   = RUNE_ICONS[player.primaryRune]        || null;
@@ -118,8 +124,9 @@ function buildTeamData(match) {
         const matchData    = typeof match.rawJson === 'string' ? JSON.parse(match.rawJson) : match.rawJson;
         const participants = matchData.info?.participants || [];
 
+        let timeline = null;
         if (match.timelineJson) {
-            const timeline  = typeof match.timelineJson === 'string' ? JSON.parse(match.timelineJson) : match.timelineJson;
+            timeline        = typeof match.timelineJson === 'string' ? JSON.parse(match.timelineJson) : match.timelineJson;
             timelineFrames  = timeline?.info?.frames || null;
         }
 
@@ -178,7 +185,8 @@ function buildTeamData(match) {
                 totalPings,        controlWardsBought: p.visionWardsBoughtInGame || 0,
                 towerDamage:       p.damageDealtToTurrets || 0,
                 isCurrentPlayer:   p.championName === match.championName && p.teamId === match.teamId,
-                impact:            impact.get(participantId) || null
+                impact:            impact.get(participantId) || null,
+                boughtAt:          timeline ? lastBoughtAt(purchasesFromTimeline(timeline, participantId)) : null
             };
 
             if (p.teamId === 100) teamData.team100.push(playerData);
@@ -231,6 +239,7 @@ function createExpandedRow(match, index, badges = []) {
                 <div class="expanded-content-vertical">
                     ${badgesHTML}
                     <div class="match-timeline"></div>
+                    <div class="game-report"></div>
                     <div class="teams-vertical">
                         <div class="team-section-full ${yourWin ? 'team-win' : 'team-loss'}">
                             <div class="team-header">${yourWin ? 'Victory' : 'Defeat'} - Your Team</div>
@@ -298,6 +307,17 @@ window.toggleRowExpand = async function (index) {
     }
 
     clickedRow.insertAdjacentHTML('afterend', createExpandedRow(fullMatch || match, index, badges));
+
+    // Game report (#9): this game against your season / patch / week, and blunders
+    const reportHost = clickedRow.nextElementSibling && clickedRow.nextElementSibling.querySelector('.game-report');
+    if (reportHost && fullMatch) {
+        try {
+            renderGameReport(reportHost, match, fullMatch);
+        } catch (err) {
+            console.warn('Game report failed:', err);
+            reportHost.remove();
+        }
+    }
 
     // Timeline chart (#3) needs the canvas in the DOM before it can draw
     const host = clickedRow.nextElementSibling && clickedRow.nextElementSibling.querySelector('.match-timeline');

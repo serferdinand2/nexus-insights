@@ -15,6 +15,8 @@ const { getItemData, getRuneData } = require('../services/dataDragon');
 const { getChampionIcon, RUNE_ICONS } = require('./matchCard');
 const { escapeHtml } = require('./dom');
 const { wrTextColor, LOW_SAMPLE } = require('./winRateColor');
+const { decodePurchases, buildOrderTable, firstBackStats, firstBackAt } = require('../services/itemBuild');
+const { formatClock } = require('../services/matchTimeline');
 
 const COLUMNS = [
     { key: 'champion',   label: 'Champion', dir: 'asc' },
@@ -134,6 +136,69 @@ function rateTable(title, rows, cellsOf, empty) {
         </div>`;
 }
 
+/** Trinkets and consumables never count as part of a build. */
+function isExcludedItem(id) {
+    const tags = (getItemData(id) || {}).tags || [];
+    return tags.includes('Consumable') || tags.includes('Trinket');
+}
+
+/**
+ * The numbered build slots are about the big item choices, so boots (which
+ * nearly everyone buys first) stay out of them; they still show under First
+ * back and in Core items.
+ */
+function isBuildItem(id) {
+    return isCoreItem(id) && !((getItemData(id) || {}).tags || []).includes('Boots');
+}
+
+/**
+ * Build order (#7): starting items, first back, then the 1st/2nd/3rd
+ * finished item you kept, each with games, win rate and pick rate. Plus the
+ * first-back timing line. From the stored purchases; no timelines parsed.
+ */
+function renderBuildOrder(matches, champion, role) {
+    const games = matches
+        .filter(m => m.championName === champion && (!role || (m.teamPosition || '') === role) && m.itemPurchases)
+        .map(m => {
+            const purchases = decodePurchases(m.itemPurchases);
+            return {
+                purchases, win: m.win === 1, firstBackAt: firstBackAt(purchases),
+                finalItems: [m.item0, m.item1, m.item2, m.item3, m.item4, m.item5],
+            };
+        });
+    if (!games.length) {
+        return `<div class="ch-card ch-card--wide"><div class="ch-card-title">Build order</div>
+            <div class="ch-empty">No purchase data yet. It's filled in while the app indexes games that have a timeline.</div></div>`;
+    }
+
+    const t = buildOrderTable(games, { isExcluded: isExcludedItem, isCompleted: isBuildItem });
+    const cols = [['Start', t.start], ['First back', t.firstBack], ['1st item', t.core[0]], ['2nd item', t.core[1]], ['3rd item', t.core[2]]];
+    const icons = key => String(key).split('+').map(id => itemIcon(Number(id))).join('');
+    const names = key => String(key).split('+').map(id => itemName(Number(id))).join(' + ');
+    const col = ([label, rows]) => `
+        <div class="ch-build-col">
+            <div class="ch-build-head">${label}</div>
+            ${rows.slice(0, 3).map(r => `
+                <div class="ch-build-row${r.games < LOW_SAMPLE ? ' is-low' : ''}" title="${escapeHtml(names(r.key))}: ${r.wins}W ${r.games - r.wins}L, in ${pct(r.pickRate)} of games">
+                    <span class="ch-build-icons">${icons(r.key)}</span>
+                    <span class="ch-build-n">${r.games}</span>${wrCell(r.winRate, r.games)}
+                </div>`).join('') || '<div class="ch-empty">–</div>'}
+        </div>`;
+
+    const fb = firstBackStats(games);
+    const side = (s, word) => (s ? `<b style="color:${wrTextColor(s.winRate)}">${pct(s.winRate)}</b> when ${word} (${s.games})` : '');
+    const back = fb.medianMs === null ? '' : `
+        <div class="ch-note">First back: median <b>${formatClock(fb.medianMs)}</b>
+            ${[side(fb.faster, 'earlier'), side(fb.slower, 'later')].filter(Boolean).map(x => '· ' + x).join(' ')}</div>`;
+
+    return `
+        <div class="ch-card ch-card--wide">
+            <div class="ch-card-title">Build order <span>${games.length} games with a timeline · numbered items are finished items you kept, boots left out · under 5% of games hidden</span></div>
+            <div class="ch-build-grid">${cols.map(col).join('')}</div>
+            ${back}
+        </div>`;
+}
+
 function renderMatchups(d) {
     if (!d.matchups.length) {
         return `<div class="ch-card ch-card--wide"><div class="ch-card-title">Matchups</div>
@@ -209,6 +274,7 @@ function renderDetail(matches) {
                     <span>${escapeHtml(runeName(r.keystone))}</span></div>`, 'No rune data')}
             ${rateTable('Core items', d.items.slice(0, 8), i =>
                 `<div class="ch-cellrow">${itemIcon(i.itemId)}<span>${escapeHtml(itemName(i.itemId))}</span></div>`, 'No finished items')}
+            ${renderBuildOrder(matches, d.champion, d.role)}
             ${renderMatchups(d)}
         </div>
         <div class="ch-note">Items are each game's final build. Win rates under ${LOW_SAMPLE} games are dimmed.</div>`;

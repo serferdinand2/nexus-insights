@@ -368,4 +368,4 @@ window.addEventListener('resize', () => {
 
 window.renderMatchTimeline = renderMatchTimeline;
 
-module.exports = { renderMatchTimeline };
+module.exports = { renderMatchTimeline, fitWidth };
