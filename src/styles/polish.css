@@ -261,7 +261,6 @@
 }
 .match-table td { font-size: 14px; }
 .match-table tbody tr:hover { transform: none; background: var(--surface-hover); }
-.table-outcome-badge { border-radius: 999px; padding: 3px 10px; }
 
 .load-more-bar {
     background: var(--surface);

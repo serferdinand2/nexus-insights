@@ -149,7 +149,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
                     <div class="table-champion-icon">
                         ${champIcon ? `<img src="${champIcon}" alt="${escapeHtml(match.championName)}" onerror="this.style.display='none'">` : ''}
                     </div>
-                    <span class="table-champion-name">${formatChampionName(match.championName)}</span>
+                    <span class="table-champion-name">${formatChampionName(match.championName)}</span>${renderImpactTag(match)}
                 </div>
             </td>
             <td class="center">
@@ -173,9 +173,6 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
             </td>
             <td class="center">${match.champLevel || '?'}</td>
             <td class="center">${durationMins}m</td>
-            <td class="center">
-                <span class="table-outcome-badge ${isWin ? 'win' : 'loss'}">${isWin ? 'Victory' : 'Defeat'}</span>${renderImpactTag(match)}
-            </td>
             <td class="center">${renderLpDelta(match.matchId)}</td>
             <td class="center">${match.kills}</td>
             <td class="center">${match.deaths}</td>
@@ -195,7 +192,7 @@ function renderMatchRow(match, index, DDRAGON_BASE, QUEUE_NAMES, getChampionIcon
 }
 
 /**
- * MVP / SVP next to the result: you were the highest-impact player on your
+ * MVP / SVP next to the champion: you were the highest-impact player on your
  * team (services/teamImpact.js). Stored per match, so no rawJson is needed.
  */
 function renderImpactTag(match) {
@@ -284,7 +281,6 @@ function renderMatchTable(matches, matchesData, DDRAGON_BASE, QUEUE_NAMES, getCh
                         <th class="center">Position</th>
                         <th class="center">Level</th>
                         <th class="center">Duration</th>
-                        <th class="center">Result</th>
                         <th class="center" title="LP gained or lost on this game. Only populated for games played with the app open — see the column for why.">LP</th>
                         <th class="center">K</th>
                         <th class="center">D</th>
