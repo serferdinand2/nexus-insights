@@ -946,6 +946,7 @@ sent to the browser (`setWindowOpenHandler` / `will-navigate` in main.js).
   (0–1; unset = skin default: region/image 0.85 or the skin overlay alpha,
   gradients 0). Region image is picked once per app run (`sessionRegion`).
   To add a skin, add an entry to `SKINS`.
+- `saveConfig` writes `config.json.tmp`, copies the old file to `config.json.bak`, then renames the temp file over it; `loadConfig` falls back to `.bak` if `config.json` is missing or broken (#40).
 - `saveSetup` now merges into the existing config (it used to replace it and
   wipe skin/coaching keys).
 - Page footer removed; Riot's legal notice lives in the Settings dialog.
