@@ -899,6 +899,20 @@ writes it into the app as `resources/app-update.yml` on every build).
 - `components/updateButton.js` = the button (spinner while busy, % in tooltip).
 - Tests: `test/updater.test.js` (fake autoUpdater).
 
+**Automatic releases:** `.github/workflows/release.yml` runs on every push to
+`main` that isn't Markdown-only, and on demand (Actions → Release → Run
+workflow). On `windows-latest`: `npm ci`, `npm test` (a failure publishes
+nothing), version = `scripts/next-version.js` (one patch above the higher of
+package.json and the newest release tag, so a lagging package.json can't
+re-use a version), then `build-installer.js --publish --version X` with
+`GH_TOKEN` = `GITHUB_TOKEN`. Its "Release vX" commit back to main is by
+github-actions[bot]; GitHub never starts a workflow from a `GITHUB_TOKEN`
+push, so it can't loop. One release at a time (`concurrency: release`). With
+`CI` set, a run whose commit is no longer the newest on main exits quietly
+(the newer run releases it), and a push rejected because main moved is
+rebased once and retried. `sqlite3` 5.1.7 is a Node-API module, so the
+prebuilt binary `npm ci` downloads works in Electron without rebuilding.
+
 **Releasing:** `Publish Update.bat` / `npm run release` → bumps the patch
 version (`--version X.Y.Z` to override), checks for hard-coded LP history, builds, uploads
 `Nexus Insights Setup X.exe` + `.blockmap` + `latest.yml` to release `vX`

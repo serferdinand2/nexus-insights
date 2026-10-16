@@ -196,7 +196,13 @@ The installed app has an update button (⟳) next to Settings. It checks this
 repo's GitHub Releases, downloads a newer version and restarts into it. Your
 matches, API key and settings are kept (they live in `%APPDATA%\nexus-insights`).
 
-**To release a new version:** double-click `Publish Update.bat`. It raises the
+**Releases are automatic.** Every merge to `main` (except Markdown-only
+changes) runs `.github/workflows/release.yml` on GitHub: it runs the tests,
+builds the installer and publishes it as the next GitHub Release, so the update
+button finds it a few minutes later. To release without a merge: Actions tab →
+Release → Run workflow.
+
+**To release from your own PC instead:** double-click `Publish Update.bat`. It raises the
 version number, builds the installer, uploads it as a GitHub Release, and
 commits + pushes the code. The first time, it asks for a GitHub token. Put it
 in `%APPDATA%\nexus-insights\github-token.txt` (never inside this folder).

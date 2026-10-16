@@ -33,4 +33,22 @@ function releaseProblems({ branch, dirty, behind, ahead }) {
     return out;
 }
 
-module.exports = { releaseProblems };
+const SEMVER = /^v?(\d+)\.(\d+)\.(\d+)$/;
+
+/**
+ * The version to release next: one patch above the higher of package.json
+ * and the newest GitHub release. When releases are published automatically,
+ * the "Release vX" commit back to main can lag behind (two merges close
+ * together), so the releases are the source of truth, not package.json.
+ * @param {string} pkgVersion   e.g. '1.0.4'
+ * @param {string} [latestTag]  e.g. 'v1.0.6'; empty when there's no release
+ */
+function nextVersion(pkgVersion, latestTag) {
+    const parse = v => { const m = SEMVER.exec(String(v || '').trim()); return m ? m.slice(1).map(Number) : null; };
+    const a = parse(pkgVersion), b = parse(latestTag);
+    if (!a && !b) throw new Error(`No usable version in "${pkgVersion}" or "${latestTag}"`);
+    const newer = !b ? a : !a ? b : (a[0] - b[0] || a[1] - b[1] || a[2] - b[2]) >= 0 ? a : b;
+    return `${newer[0]}.${newer[1]}.${newer[2] + 1}`;
+}
+
+module.exports = { releaseProblems, nextVersion };

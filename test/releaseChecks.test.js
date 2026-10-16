@@ -28,3 +28,14 @@ test('several problems at once are all listed', () => {
     const p = releaseProblems({ branch: 'fix/x', dirty: true, behind: 2, ahead: 1 });
     assert.equal(p.length, 4);
 });
+
+test('nextVersion: one patch above the newer of package.json and the latest release', () => {
+    const { nextVersion } = require(path.join(__dirname, '..', 'scripts', 'releaseChecks.js'));
+    assert.equal(nextVersion('1.0.4', 'v1.0.4'), '1.0.5');
+    assert.equal(nextVersion('1.0.4', 'v1.0.6'), '1.0.7');      // main's version commit lagged behind
+    assert.equal(nextVersion('1.1.0', 'v1.0.9'), '1.1.1');      // bumped by hand in package.json
+    assert.equal(nextVersion('1.0.10', 'v1.0.9'), '1.0.11');    // numeric, not text, comparison
+    assert.equal(nextVersion('1.0.4', ''), '1.0.5');            // no release yet
+    assert.equal(nextVersion('1.0.4', 'nightly'), '1.0.5');     // a tag that isn't a version
+    assert.throws(() => nextVersion('', ''));
+});
