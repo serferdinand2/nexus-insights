@@ -322,10 +322,27 @@ async function writeReleasePage(version) {
     const guide = fs.readFileSync(path.join(ROOT, 'installer', 'release-notes.md'), 'utf8');
     const body = whatsNew + guide;
 
-    const rel = await fetch(`${api}/releases/tags/${tag}`, { headers });
+    // A network blip ("fetch failed") left v1.0.5's notes empty: try each call
+    // up to 3 times. Also retried: a 404 right after upload (the release can
+    // take a moment to show up) and GitHub's own 5xx errors.
+    const fetchRetry = async (url, opts) => {
+        for (let attempt = 1; ; attempt++) {
+            try {
+                const res = await fetch(url, opts);
+                if ((res.status === 404 || res.status >= 500) && attempt < 3) throw new Error(`HTTP ${res.status}`);
+                return res;
+            } catch (err) {
+                if (attempt >= 3) throw err;
+                console.log(`  Release page: ${err.message}, trying again...`);
+                await new Promise(r => setTimeout(r, 3000 * attempt));
+            }
+        }
+    };
+
+    const rel = await fetchRetry(`${api}/releases/tags/${tag}`, { headers });
     if (!rel.ok) throw new Error(`couldn't find release ${tag} (HTTP ${rel.status})`);
     const { id } = await rel.json();
-    const upd = await fetch(`${api}/releases/${id}`, {
+    const upd = await fetchRetry(`${api}/releases/${id}`, {
         method: 'PATCH',
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: `Nexus Insights ${tag}`, body }),
