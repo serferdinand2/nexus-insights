@@ -293,7 +293,12 @@ function initDatabase() {
         impactTag TEXT,
         -- Lane opponent's champion (same teamPosition, other team) for the
         -- Champions page matchups. '' = none (no position); NULL = not computed.
-        laneOpponent TEXT
+        laneOpponent TEXT,
+        -- Issue #15. turretDamage NULL = not computed; firstDeathAt NULL = no death
+        -- (ms into the game).
+        turretDamage INTEGER,
+        objectiveDamage INTEGER,
+        firstDeathAt INTEGER
       )
     `);
 
@@ -450,7 +455,10 @@ function initDatabase() {
       'impactScore REAL',
       'impactRank INTEGER',
       'impactTag TEXT',
-      'laneOpponent TEXT'
+      'laneOpponent TEXT',
+      'turretDamage INTEGER',
+      'objectiveDamage INTEGER',
+      'firstDeathAt INTEGER'
     ];
     // Only ALTER for columns that are actually missing — the old code fired
     // ~60 failing ALTERs on every launch. This also acts as the completion

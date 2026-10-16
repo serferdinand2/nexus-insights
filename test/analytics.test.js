@@ -213,3 +213,22 @@ test('Combat impact cards: stored columns, rawJson fallback, and "--" with no da
         assert.equal(cardById(cards, id).trend, null);
     }
 });
+
+test('objective/turret damage per minute and first death cards (#15)', () => {
+    const games = [
+        makeMatch({ gameDuration: 1800, turretDamage: 6000, objectiveDamage: 3000, firstDeathAt: 6 * 60000 }),
+        makeMatch({ gameDuration: 1200, turretDamage: 1200, objectiveDamage: 600,  firstDeathAt: null }),
+        makeMatch({ gameDuration: 1500, turretDamage: null, objectiveDamage: null, firstDeathAt: null }), // not indexed
+    ];
+    const obj = window.computeTabStats('Objectives', games, []);
+    assert.equal(cardById(obj, 'turret_dmg_min').value, (200 + 60) / 2);
+    assert.equal(cardById(obj, 'obj_dmg_min').value, (100 + 30) / 2);
+    assert.equal(cardById(obj, 'obj_dmg_min').benchmarkable, false);
+
+    const dr = window.computeTabStats('Death Review', games, []);
+    assert.equal(cardById(dr, 'dr_first_death').displayValue, '6:00');
+
+    // Nothing indexed yet: "--", not 0
+    const none = window.computeTabStats('Objectives', [games[2]], []);
+    assert.equal(cardById(none, 'turret_dmg_min').displayValue, '--');
+});

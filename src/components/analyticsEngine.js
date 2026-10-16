@@ -184,6 +184,8 @@ const formatPct = (num) => `${Math.round(num * 100)}%`;
 const formatNum = (num, decimals = 1) => Number(num).toFixed(decimals);
 const fmtInt = (v) => Math.round(v).toLocaleString('en-US');
 const fmtDiff = (v) => (v > 0 ? '+' : '') + Math.round(v).toLocaleString('en-US');
+// Minutes → "7:42"
+const fmtClock = (v) => { const s = Math.round(v * 60); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
 function getParticipant(raw, championName, teamId) {
     const participants = raw.info ? raw.info.participants : raw.participants;
@@ -496,7 +498,12 @@ function calcDeathReview(matches) {
         return acc + (teamDeaths > 0 ? m.deaths / teamDeaths : 0);
     }, 0) / mCount * 100 : 0;
 
-    return { avgDeaths, avgEarlyDeaths, avgIsolated, avgShutdownBounty, deathShare };
+    // Minutes. Games without a death have no first death and are left out.
+    const firstDeaths = matches.filter(m => m.firstDeathAt != null).map(m => m.firstDeathAt / 60000);
+    const avgFirstDeath = avg(firstDeaths);
+
+    return { avgDeaths, avgEarlyDeaths, avgIsolated, avgShutdownBounty, deathShare,
+             avgFirstDeath, firstDeathGames: firstDeaths.length };
 }
 
 // ---------------------------------------------------------
@@ -508,6 +515,7 @@ function calcObjectives(matches) {
     const mCount = matches.length;
     let dragonCtl = [], baronCtl = [], towerCtl = [];
     let heraldsAvg = 0, inhibsAvg = 0, stealsAvg = 0, objRate = [];
+    const objDmgMin = [], turretDmgMin = [];
 
     matches.forEach(m => {
         const td = m.teamDragons || 0, ed = m.enemyDragons || 0;
@@ -523,6 +531,14 @@ function calcObjectives(matches) {
         inhibsAvg  += (m.teamInhibitors || 0);
         stealsAvg  += (m.objectivesStolen || 0);
         if (m.objectiveRate !== null && m.objectiveRate !== undefined) objRate.push(m.objectiveRate);
+
+        // Rows not indexed yet (turretDamage NULL) are left out until the
+        // background backfill reaches them.
+        const minutes = (m.gameDuration || 0) / 60;
+        if (m.turretDamage != null && minutes > 0) {
+            turretDmgMin.push(m.turretDamage / minutes);
+            objDmgMin.push(num(m.objectiveDamage) / minutes);
+        }
     });
 
     return {
@@ -532,7 +548,10 @@ function calcObjectives(matches) {
         heralds:   heraldsAvg / mCount,
         inhibs:    inhibsAvg  / mCount,
         steals:    stealsAvg  / mCount,
-        objRate:   avg(objRate)  // DB stores objectiveRate as a percentage (0-100) — no * 100
+        objRate:   avg(objRate),  // DB stores objectiveRate as a percentage (0-100) — no * 100
+        objDmgMin:    avg(objDmgMin),
+        turretDmgMin: avg(turretDmgMin),
+        dmgGames:     turretDmgMin.length,  // 0 = no indexed game: cards show "--"
     };
 }
 
@@ -753,6 +772,10 @@ window.computeTabStats = function(tabName, matches, prevMatches = []) {
             cards.push(buildCard('dr_isolated',     'Isolated Deaths',   tabName, cur.avgIsolated,     v => formatNum(v,1), 'average',    true,  false, prev ? prev.avgIsolated : null));
             cards.push(buildCard('dr_shutdown', 'Shutdown Gold Given', tabName, cur.avgShutdownBounty, v => fmtInt(v), 'average', true, false, prev ? prev.avgShutdownBounty : null));
             cards.push(buildCard('dr_death_share', 'Death Share %', tabName, cur.deathShare, v => formatPct(v/100), 'percentage', true, false, prev ? prev.deathShare : null));
+            // Not benchmarked: depends on role (bot lane dies much earlier) more than rank
+            const hasFirstDeath = cur.firstDeathGames > 0;
+            const prevFirstDeath = hasFirstDeath && prev && prev.firstDeathGames > 0 ? prev.avgFirstDeath : null;
+            cards.push(buildCard('dr_first_death', 'Avg First Death', tabName, cur.avgFirstDeath, v => hasFirstDeath ? fmtClock(v) : '--', 'average', false, true, prevFirstDeath));
             break;
         }
 
@@ -766,6 +789,12 @@ window.computeTabStats = function(tabName, matches, prevMatches = []) {
             cards.push(buildCard('obj_inhib',   'Inhibitors/Game',  tabName, cur.inhibs,    v => formatNum(v,1),  'average',    true, true, prev ? prev.inhibs : null));
             cards.push(buildCard('obj_steal',   'Obj Steals/Game',  tabName, cur.steals,    v => formatNum(v,1),  'average',    true, true, prev ? prev.steals : null));
             cards.push(buildCard('obj_rate',    'Objective Rate',   tabName, cur.objRate,   v => formatPct(v/100), 'percentage', true,  true, prev ? prev.objRate : null));
+            // Not benchmarked: a jungler does ~30x a top laner's objective
+            // damage, so one ladder over mixed roles would mislabel most games
+            const hasDmg = cur.dmgGames > 0;
+            const prevDmg = hasDmg && prev && prev.dmgGames > 0 ? prev : null;
+            cards.push(buildCard('obj_dmg_min',    'Objective DMG/Min', tabName, cur.objDmgMin,    v => hasDmg ? fmtInt(v) : '--', 'per-minute', false, true, prevDmg ? prevDmg.objDmgMin : null));
+            cards.push(buildCard('turret_dmg_min', 'Turret DMG/Min',    tabName, cur.turretDmgMin, v => hasDmg ? fmtInt(v) : '--', 'per-minute', false, true, prevDmg ? prevDmg.turretDmgMin : null));
             break;
         }
 

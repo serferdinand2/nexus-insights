@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, Tray, ipcMain, shell, nativeImage } = require('electron');
+const { app, BrowserWindow, Menu, Tray, ipcMain, shell, nativeImage, dialog } = require('electron');
 const path = require('path');
 const fs   = require('fs');
 
@@ -386,6 +386,20 @@ function releasesUrl() {
 
 ipcMain.on('update:check', () => getUpdater().check());
 ipcMain.handle('app:version', () => app.getVersion());
+
+// Settings → Export matches to CSV (#15). The renderer builds the text; the
+// save dialog only exists in main. BOM so Excel reads it as UTF-8.
+ipcMain.handle('csv:save', async (event, { defaultName, content }) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const { canceled, filePath } = await dialog.showSaveDialog(win, {
+    title: 'Export matches',
+    defaultPath: path.join(app.getPath('documents'), defaultName),
+    filters: [{ name: 'CSV', extensions: ['csv'] }],
+  });
+  if (canceled || !filePath) return { saved: false };
+  await fs.promises.writeFile(filePath, '﻿' + content, 'utf8');
+  return { saved: true, filePath };
+});
 
 // Second launch (desktop shortcut while the tray copy runs) — surface the
 // existing window instead of starting over.
